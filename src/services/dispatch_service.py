@@ -5,7 +5,7 @@ import time
 from typing import Any
 from sqlalchemy import select, update
 from src.core.config import settings
-from src.db.models import Trip, TripStatus, User
+from src.db.models import Trip, TripStatus, User, DispatchAudit
 from src.db.session import AsyncSessionLocal
 from src.engine.dispatch_scorer import DispatchScorer, CandidateScore
 from src.engine.h3_indexer import H3SpatialIndexer
@@ -105,13 +105,99 @@ class DispatchService:
         latency_ms = (time.perf_counter() - start_time) * 1000.0
 
         if matched_candidate:
-            # Update trip status to OFFERED with assigned candidate
+            # 5. Evaluate full fleet candidate matrix for mathematical explainability audit
+            all_active_cabs = await redis_mesh.get_all_active_drivers()
+            matched_dict = {
+                "driver_id": matched_candidate.driver_id,
+                "lat": matched_candidate.lat,
+                "lng": matched_candidate.lng,
+                "cell": matched_candidate.cell,
+                "rating": matched_candidate.rating,
+                "speed": 0.0,
+                "heading": 0.0,
+                "name": matched_candidate.extra_meta.get("name", "Driver"),
+                "vehicle_model": matched_candidate.extra_meta.get("vehicle_model", "Sedan"),
+                "license_plate": matched_candidate.extra_meta.get("license_plate", "7HEX001"),
+                "extra_meta": matched_candidate.extra_meta,
+            }
+            # Combine matched driver + remaining active drivers for complete fleet comparison
+            pool = [matched_dict] + [c for c in all_active_cabs if c.get("driver_id") != matched_candidate.driver_id]
+            all_ranked = self.scorer.rank_candidates(pool, pickup_lat, pickup_lng)
+
+            # Place the selected winner at Rank 1, followed by the remaining fleet candidates
+            other_candidates = [c for c in all_ranked if c.driver_id != matched_candidate.driver_id]
+            other_candidates.sort(key=lambda x: x.final_score, reverse=True)
+            final_ordered_candidates = [matched_candidate] + other_candidates
+
+            candidates_matrix: list[dict[str, Any]] = []
+            for idx, c in enumerate(final_ordered_candidates, 1):
+                is_sel = bool(c.driver_id == matched_candidate.driver_id)
+                status_str = "SELECTED (Winner)" if is_sel else ("RUNNER_UP" if idx == 2 else "EVALUATED (Sub-optimal)")
+                candidates_matrix.append({
+                    "rank": idx,
+                    "driver_id": c.driver_id,
+                    "name": c.extra_meta.get("name", "Driver"),
+                    "vehicle_model": c.extra_meta.get("vehicle_model", "Sedan"),
+                    "license_plate": c.extra_meta.get("license_plate", "7HEX001"),
+                    "lat": round(c.lat, 6),
+                    "lng": round(c.lng, 6),
+                    "cell": c.cell,
+                    "distance_m": round(c.distance_m, 1),
+                    "distance_diff_vs_selected_m": round(c.distance_m - matched_candidate.distance_m, 1),
+                    "eta_seconds": c.eta_seconds,
+                    "eta_diff_vs_selected_sec": c.eta_seconds - matched_candidate.eta_seconds,
+                    "bearing_diff_deg": round(c.bearing_diff_deg, 1),
+                    "rating": round(c.rating, 2),
+                    "distance_score": round(c.distance_score, 4),
+                    "bearing_score": round(c.bearing_score, 4),
+                    "rating_score": round(c.rating_score, 4),
+                    "final_score": round(c.final_score, 4),
+                    "is_selected": is_sel,
+                    "status": status_str,
+                })
+
+            runner_up = candidates_matrix[1] if len(candidates_matrix) > 1 else None
+            dist_saved = round(runner_up["distance_m"] - matched_candidate.distance_m, 1) if runner_up else 0
+            eta_saved = (runner_up["eta_seconds"] - matched_candidate.eta_seconds) if runner_up else 0
+
+            driver_name = matched_candidate.extra_meta.get("name", "Driver")
+            rationale = (
+                f"Cab #{1} ({driver_name}) was mathematically selected with an optimal composite score of "
+                f"{matched_candidate.final_score:.3f}. Located only {matched_candidate.distance_m:.1f}m away "
+                f"(ETA ~{matched_candidate.eta_seconds}s) with a low bearing deviation ({matched_candidate.bearing_diff_deg:.1f}°). "
+            )
+            if runner_up:
+                rationale += (
+                    f"Compared to Runner-up ({runner_up['name']}) at {runner_up['distance_m']:.1f}m (Score: {runner_up['final_score']:.3f}), "
+                    f"choosing {driver_name} saved {dist_saved:.1f}m in physical transit and {eta_saved}s in customer wait time."
+                )
+
+            # Persist Trip update and DispatchAudit record in DB
             async with AsyncSessionLocal() as session:
                 await session.execute(
                     update(Trip)
                     .where(Trip.id == trip_id)
                     .values(driver_id=matched_candidate.driver_id, status=TripStatus.OFFERED)
                 )
+
+                audit_record = DispatchAudit(
+                    trip_id=trip_id,
+                    rider_id=rider_id,
+                    pickup_lat=pickup_lat,
+                    pickup_lng=pickup_lng,
+                    pickup_h3=pickup_h3,
+                    dropoff_lat=dropoff_lat,
+                    dropoff_lng=dropoff_lng,
+                    selected_driver_id=matched_candidate.driver_id,
+                    selected_driver_name=driver_name,
+                    selected_driver_distance_m=matched_candidate.distance_m,
+                    selected_driver_eta_seconds=matched_candidate.eta_seconds,
+                    selected_score=matched_candidate.final_score,
+                    total_candidates_evaluated=len(candidates_matrix),
+                    candidates_matrix=candidates_matrix,
+                    mathematical_rationale=rationale,
+                )
+                session.add(audit_record)
                 await session.commit()
 
             offer_payload = {
@@ -138,7 +224,7 @@ class DispatchService:
                     "driver_id": matched_candidate.driver_id,
                     "eta_seconds": matched_candidate.eta_seconds,
                     "distance_m": matched_candidate.distance_m,
-                    "driver_name": matched_candidate.extra_meta.get("name", "Driver"),
+                    "driver_name": driver_name,
                     "vehicle": matched_candidate.extra_meta.get("vehicle_model", "Car"),
                     "rating": matched_candidate.rating,
                 },
@@ -168,6 +254,17 @@ class DispatchService:
                 "latency_ms": round(latency_ms, 2),
                 "matched_driver": matched_candidate.to_dict(),
                 "searched_cell_count": len(searched_cells),
+                "mathematical_rationale": rationale,
+                "candidates_matrix": candidates_matrix,
+                "audit": {
+                    "trip_id": trip_id,
+                    "selected_driver_id": matched_candidate.driver_id,
+                    "selected_driver_name": driver_name,
+                    "selected_score": round(matched_candidate.final_score, 4),
+                    "total_evaluated": len(candidates_matrix),
+                    "mathematical_rationale": rationale,
+                    "candidates_matrix": candidates_matrix,
+                },
             }
         else:
             # No available driver found within max k-ring radius

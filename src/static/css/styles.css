@@ -217,7 +217,7 @@ body.uber-theme {
 }
 
 /* =====================================================
-   Uber Main Left Panel (Docked on Left, Map is Open)
+   Uber Main Left Panel (Docked on Left)
    ===================================================== */
 .uber-main-panel {
     position: absolute;
@@ -555,7 +555,7 @@ input[type="range"] {
     border: 1px solid var(--uber-border-light);
     border-radius: 16px;
     padding: 12px 16px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
 }
 
 .driver-avatar-wrap {
@@ -618,6 +618,65 @@ input[type="range"] {
     font-weight: 700;
     font-size: 0.85rem;
     letter-spacing: 0.05em;
+}
+
+/* Mathematical Decision Audit Trigger Card */
+.audit-trigger-card {
+    width: 100%;
+    background: linear-gradient(135deg, rgba(39, 110, 241, 0.15), rgba(0, 210, 255, 0.08));
+    border: 1px solid rgba(0, 210, 255, 0.35);
+    border-radius: 14px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    margin-bottom: 14px;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+
+.audit-trigger-card:hover {
+    background: linear-gradient(135deg, rgba(39, 110, 241, 0.25), rgba(0, 210, 255, 0.16));
+    border-color: var(--uber-cyan);
+    transform: translateY(-1px);
+}
+
+.audit-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: rgba(0, 210, 255, 0.2);
+    color: var(--uber-cyan);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+}
+
+.audit-text {
+    flex: 1;
+}
+
+.audit-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--uber-white);
+}
+
+.audit-subtitle {
+    font-size: 0.7rem;
+    color: var(--uber-cyan);
+    margin-top: 1px;
+}
+
+.audit-arrow {
+    color: var(--uber-gray-400);
+    font-size: 0.75rem;
+}
+
+.mb-16 {
+    margin-bottom: 16px;
 }
 
 /* Trip Progress Meter */
@@ -808,7 +867,7 @@ input[type="range"] {
     border: 1px solid var(--uber-border-light);
     border-radius: 14px;
     padding: 14px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
 }
 
 .receipt-item {
@@ -827,6 +886,213 @@ input[type="range"] {
     font-weight: 700;
     font-family: var(--font-uber);
     margin-top: 2px;
+}
+
+/* =====================================================
+   MATHEMATICAL DISPATCH AUDIT MODAL
+   ===================================================== */
+.audit-modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.78);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 20px;
+    transition: opacity 0.25s ease;
+}
+
+.audit-modal-backdrop.hidden {
+    display: none !important;
+}
+
+.audit-modal-content {
+    background: var(--uber-surface);
+    border: 1px solid var(--uber-border);
+    border-radius: 24px;
+    width: 880px;
+    max-width: 95vw;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+}
+
+.audit-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--uber-border);
+    padding-bottom: 14px;
+}
+
+.audit-modal-header h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.modal-subtext {
+    font-size: 0.75rem;
+    color: var(--uber-gray-400);
+    margin-top: 3px;
+    font-family: var(--font-mono);
+}
+
+.modal-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--uber-gray-400);
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: 4px;
+    transition: color 0.15s;
+}
+
+.modal-close-btn:hover {
+    color: var(--uber-white);
+}
+
+/* Rationale Box */
+.audit-rationale-box {
+    background: rgba(0, 210, 255, 0.08);
+    border: 1px solid rgba(0, 210, 255, 0.25);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: #e0f2fe;
+    margin-bottom: 16px;
+}
+
+/* Candidate Comparison Table */
+.audit-table-wrapper {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid var(--uber-border-light);
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.4);
+    margin-bottom: 16px;
+}
+
+.audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    text-align: left;
+}
+
+.audit-table th {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--uber-gray-400);
+    padding: 10px 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--uber-border);
+    position: sticky;
+    top: 0;
+    backdrop-filter: blur(8px);
+}
+
+.audit-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--uber-border-light);
+    color: var(--uber-white);
+    font-family: var(--font-uber);
+}
+
+.audit-table tr.selected-row {
+    background: rgba(6, 193, 103, 0.15);
+}
+
+.audit-table tr.selected-row td {
+    color: #a7f3d0;
+    font-weight: 600;
+}
+
+.audit-table tr:hover:not(.selected-row) {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.badge-rank {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    font-size: 0.72rem;
+}
+
+.badge-rank.gold {
+    background: var(--uber-green);
+    color: var(--uber-black);
+}
+
+.badge-status-chosen {
+    background: rgba(6, 193, 103, 0.25);
+    border: 1px solid var(--uber-green);
+    color: #a7f3d0;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.badge-status-other {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--uber-gray-400);
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.68rem;
+}
+
+/* Formula Card */
+.audit-formula-card {
+    background: var(--uber-surface-elevated);
+    border: 1px solid var(--uber-border-light);
+    border-radius: 12px;
+    padding: 12px 16px;
+}
+
+.formula-title {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--uber-gray-400);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.formula-code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--uber-cyan);
+    background: var(--uber-black);
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: inline-block;
+    margin-bottom: 6px;
+}
+
+.formula-desc {
+    font-size: 0.72rem;
+    color: var(--uber-gray-400);
+    line-height: 1.4;
 }
 
 /* =====================================================
@@ -974,6 +1240,27 @@ input[type="range"] {
 
 .uber-car-marker-container.on-trip::before {
     background: radial-gradient(ellipse at bottom, rgba(6, 193, 103, 0.75) 0%, rgba(6, 193, 103, 0) 70%);
+}
+
+/* Candidate Distance Map Badge */
+.cab-dist-badge {
+    background: rgba(18, 18, 18, 0.88);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--uber-white);
+    border-radius: 12px;
+    padding: 2px 7px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+}
+
+.cab-dist-badge.chosen {
+    border-color: var(--uber-green);
+    color: var(--uber-green);
+    background: rgba(6, 193, 103, 0.2);
 }
 
 /* Uber Pickup Pin Marker */

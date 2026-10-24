@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Uber HexDispatch | Spatial Indexing & Real-Time Engine</title>
+    <title>Uber HexDispatch | OpenFreeMap & Mathematical Decision Engine</title>
     
     <!-- Modern Typography: Inter & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -13,6 +13,8 @@
     
     <!-- Leaflet Map CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- MapLibre GL CSS for OpenFreeMap Vector Tiles -->
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"/>
     
     <!-- Uber Theme CSS -->
     <link rel="stylesheet" href="/static/css/styles.css">
@@ -27,7 +29,7 @@
                     <span class="logo-sub">HexDispatch</span>
                 </div>
                 <div class="h3-badge">
-                    <i class="fa-solid fa-hexagon-nodes"></i> H3 Spatial Core
+                    <i class="fa-solid fa-map-location-dot"></i> OpenFreeMap + H3 Core
                 </div>
             </div>
 
@@ -59,6 +61,9 @@
                 <button id="btn-toggle-hexes" class="uber-btn-pill active">
                     <i class="fa-solid fa-draw-polygon"></i> H3 Grid
                 </button>
+                <button id="btn-toggle-distances" class="uber-btn-pill active" title="Show/hide distance lines to all cabs">
+                    <i class="fa-solid fa-ruler-combined"></i> Fleet Distances
+                </button>
                 <button id="btn-toggle-drawer" class="uber-btn-icon" title="Toggle Architecture & Event Log">
                     <i class="fa-solid fa-code"></i>
                 </button>
@@ -75,7 +80,7 @@
             <div class="panel-view" id="view-booking">
                 <div class="card-header">
                     <h2>Get a ride</h2>
-                    <span class="card-subtitle">Discretized via Uber H3 (Res 8)</span>
+                    <span class="card-subtitle">Real Road Routing & H3 Spatial Partitioning</span>
                 </div>
 
                 <!-- Preset Routes -->
@@ -190,7 +195,7 @@
                         <span id="trip-stage-title">Driver arriving in 2 mins</span>
                     </div>
                     <div class="trip-eta-badge" id="trip-eta-badge">
-                        <span id="trip-distance-rem">650 m away</span>
+                        <span id="trip-distance-rem">328 m away</span>
                     </div>
                 </div>
 
@@ -211,6 +216,18 @@
                         7HEX005
                     </div>
                 </div>
+
+                <!-- Mathematical Decision Audit Trigger Button -->
+                <button class="audit-trigger-card" id="btn-open-audit">
+                    <div class="audit-icon">
+                        <i class="fa-solid fa-chart-simple"></i>
+                    </div>
+                    <div class="audit-text">
+                        <div class="audit-title">Mathematical Dispatch Rationale</div>
+                        <div class="audit-subtitle" id="audit-summary-sub">Rank #1 of 10 cabs • Saved 659m vs Runner-up</div>
+                    </div>
+                    <i class="fa-solid fa-chevron-right audit-arrow"></i>
+                </button>
 
                 <!-- Live Trip Progress Meter -->
                 <div class="trip-progress-container">
@@ -265,8 +282,8 @@
                         <span class="rc-val text-emerald" id="receipt-fare">$12.50</span>
                     </div>
                     <div class="receipt-item">
-                        <span class="rc-label">Distance</span>
-                        <span class="rc-val" id="receipt-dist">2.4 km</span>
+                        <span class="rc-label">Road Distance</span>
+                        <span class="rc-val" id="receipt-dist">1.9 km</span>
                     </div>
                     <div class="receipt-item">
                         <span class="rc-label">Duration</span>
@@ -278,12 +295,76 @@
                     </div>
                 </div>
 
+                <!-- Audit Button in Receipt -->
+                <button class="audit-trigger-card mb-16" id="btn-receipt-open-audit">
+                    <div class="audit-icon">
+                        <i class="fa-solid fa-database"></i>
+                    </div>
+                    <div class="audit-text">
+                        <div class="audit-title">Inspect Event Audit Matrix</div>
+                        <div class="audit-subtitle">View persisted mathematical decision record</div>
+                    </div>
+                    <i class="fa-solid fa-chevron-right audit-arrow"></i>
+                </button>
+
                 <button class="uber-cta-btn" id="btn-book-another">
                     <span>Done • Book Another Ride</span>
                     <i class="fa-solid fa-arrow-right"></i>
                 </button>
             </div>
         </aside>
+
+        <!-- MATHEMATICAL DISPATCH AUDIT MODAL -->
+        <div class="audit-modal-backdrop hidden" id="audit-modal">
+            <div class="audit-modal-content">
+                <div class="audit-modal-header">
+                    <div>
+                        <h3><i class="fa-solid fa-calculator text-cyan"></i> Mathematical Dispatch Decision Audit</h3>
+                        <p class="modal-subtext" id="modal-trip-meta">Trip ID: Loading • Evaluated 10 Available Cabs in Real-Time</p>
+                    </div>
+                    <button class="modal-close-btn" id="btn-close-audit-modal">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Explanation Rationale Banner -->
+                <div class="audit-rationale-box" id="audit-rationale-text">
+                    Loading mathematical rationale...
+                </div>
+
+                <!-- Candidate Cabs Comparison Matrix Table -->
+                <div class="audit-table-wrapper">
+                    <table class="audit-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Cab & Driver</th>
+                                <th>Distance from Customer</th>
+                                <th>$\Delta$ Distance</th>
+                                <th>ETA</th>
+                                <th>Heading Align</th>
+                                <th>Score</th>
+                                <th>Decision Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-table-body">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Mathematical Formulation Explanation -->
+                <div class="audit-formula-card">
+                    <div class="formula-title"><i class="fa-solid fa-square-root-variable"></i> Scoring & Selection Formulation</div>
+                    <div class="formula-code">
+                        CompositeScore = 0.60 &times; e<sup>(-distance / 1500m)</sup> + 0.25 &times; RatingNorm + 0.15 &times; (1 - HeadingDelta / 180&deg;)
+                    </div>
+                    <p class="formula-desc">
+                        Every available cab within the spatial H3 partition is scored across physical distance, transit ETA, and compass heading alignment. Heading alignment eliminates costly U-turns by prioritizing vehicles already oriented toward the customer.
+                    </p>
+                </div>
+            </div>
+        </div>
 
         <!-- Collapsible Developer & Telemetry Drawer (Hidden by default) -->
         <aside class="uber-dev-drawer hidden" id="dev-drawer">
@@ -314,6 +395,9 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- MapLibre GL for OpenFreeMap -->
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.21/leaflet-maplibre-gl.js"></script>
     <!-- Application Logic -->
     <script src="/static/js/dashboard.js"></script>
 </body>

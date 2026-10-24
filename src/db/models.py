@@ -11,6 +11,8 @@ from sqlalchemy import (
     ForeignKey,
     Enum,
     Index,
+    Text,
+    JSON,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -121,3 +123,30 @@ class DriverTelemetry(Base):
         Index("idx_telemetry_driver_time", "driver_id", "time"),
         Index("idx_telemetry_cell_time", "h3_cell", "time"),
     )
+
+
+class DispatchAudit(Base):
+    """Event decision record persisting mathematical rationale for every customer dispatch."""
+    __tablename__ = "dispatch_audits"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    trip_id = Column(String(36), ForeignKey("trips.id"), nullable=False, unique=True, index=True)
+    rider_id = Column(String(36), nullable=False)
+    pickup_lat = Column(Float, nullable=False)
+    pickup_lng = Column(Float, nullable=False)
+    pickup_h3 = Column(String(20), nullable=False, index=True)
+    dropoff_lat = Column(Float, nullable=False)
+    dropoff_lng = Column(Float, nullable=False)
+
+    selected_driver_id = Column(String(36), nullable=False, index=True)
+    selected_driver_name = Column(String(100), default="Driver")
+    selected_driver_distance_m = Column(Float, default=0.0)
+    selected_driver_eta_seconds = Column(Integer, default=0)
+    selected_score = Column(Float, default=0.0)
+
+    total_candidates_evaluated = Column(Integer, default=0)
+    candidates_matrix = Column(JSON, nullable=False)  # Full matrix of all evaluated cabs
+    mathematical_rationale = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+

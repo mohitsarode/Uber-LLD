@@ -1,8 +1,11 @@
-// Uber HexDispatch - Core Frontend Controller & Drive Simulation Engine
+// =========================================================================
+// Uber HexDispatch - Core Frontend Controller & Simulation Engine
+// OpenFreeMap Vector Layer + OSRM Real Road Routing + Mathematical Audit
+// =========================================================================
 
 const SF_CENTER = [37.7850, -122.4080];
 
-// Presets Coordinates
+// Presets Coordinates (San Francisco Hubs)
 const ROUTE_PRESETS = {
     "financial-ferry": {
         pickupName: "Financial District (Montgomery St)",
@@ -34,6 +37,7 @@ let driverMarkers = {};
 let hexLayers = {};
 let routeLayers = [];
 let rippleLayers = [];
+let candidateDistanceLayers = [];
 let pickupMarker = null;
 let dropoffMarker = null;
 
@@ -50,8 +54,10 @@ let activeDriversList = [];
 let activeTripAnimId = null;
 let tripStartTime = null;
 let currentTripData = null;
+let currentAuditData = null;
 let telemetryFrameCount = 0;
 let mapClickMode = null; // 'pickup' | 'dropoff' | null
+let showCandidateDistances = true;
 
 // Top-Down Sleek Uber Car SVG
 const UBER_CAR_SVG = `
@@ -86,18 +92,34 @@ function initMap() {
         zoomControl: false,
     });
 
-    // Clean Esri World Dark Gray Canvas (Zero Watermarks, No "API KEY REQUIRED")
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
-        attribution: '&copy; Uber H3 Spatial &copy; Esri &copy; OpenStreetMap',
-        maxZoom: 19,
-    }).addTo(map);
+    // 1. Primary: OpenFreeMap Vector Tiles (Dark Style - zero watermark, no API key)
+    let openFreeMapLoaded = false;
+    try {
+        if (typeof L.maplibreGL === "function") {
+            L.maplibreGL({
+                style: "https://tiles.openfreemap.org/styles/dark",
+            }).addTo(map);
+            openFreeMapLoaded = true;
+            logTerminal("OpenFreeMap vector basemap (Dark Style) connected.", "sys");
+        }
+    } catch (e) {
+        console.warn("OpenFreeMap vector tile load failed, using dark raster fallback:", e);
+    }
 
-    // Reference Roads and Street Labels Layer
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
-        attribution: '',
-        maxZoom: 19,
-        opacity: 0.75,
-    }).addTo(map);
+    // 2. Resilient Fallback: Esri Dark Gray Canvas
+    if (!openFreeMapLoaded) {
+        L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+            attribution: '&copy; OpenFreeMap &copy; OpenStreetMap',
+            maxZoom: 19,
+        }).addTo(map);
+
+        L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
+            attribution: '',
+            maxZoom: 19,
+            opacity: 0.75,
+        }).addTo(map);
+        logTerminal("Connected to high-contrast dark canvas tiles.", "sys");
+    }
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
@@ -173,12 +195,11 @@ async function loadRealDriversFromBackend() {
         activeDriversList = drivers;
 
         drivers.forEach(d => {
-            // Use real driver ID, real name, vehicle model, and coordinates from Redis/DB
             updateCarMarker(d.driver_id, d.lat, d.lng, 90, d.status || "IDLE", d.name, d.vehicle_model);
         });
 
         document.getElementById("stat-drivers").textContent = Object.keys(driverMarkers).length;
-        logTerminal(`Synchronized ${drivers.length} real fleet drivers from Redis mesh.`, "sys");
+        logTerminal(`Synchronized ${drivers.length} real fleet drivers into spatial mesh.`, "sys");
     } catch (e) {
         console.error("Failed to fetch drivers from backend:", e);
     }
@@ -205,7 +226,7 @@ function updateCarMarker(driverId, lat, lng, heading = 0, status = "IDLE", name 
     if (driverMarkers[driverId]) {
         driverMarkers[driverId].setLatLng([lat, lng]);
         driverMarkers[driverId].setIcon(customIcon);
-        // Update stored position
+        // Update stored position in active list
         const found = activeDriversList.find(d => d.driver_id === driverId);
         if (found) {
             found.lat = lat;
@@ -265,13 +286,69 @@ function handleMonitorMessage(msg) {
 }
 
 // -------------------------------------------------------------
-// Street-Grid Route Generation
+// Real Road Routing via OSRM & Dense Resampling
 // -------------------------------------------------------------
+async function fetchRoadRoute(startLat, startLng, endLat, endLng) {
+    try {
+        const url = `/api/v1/dispatch/road-route?start_lat=${startLat}&start_lng=${startLng}&end_lat=${endLat}&end_lng=${endLng}`;
+        const res = await fetch(url);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.waypoints && data.waypoints.length > 0) {
+                // Resample along street segments every ~8m for smooth 60fps animation
+                const denseWaypoints = resamplePath(data.waypoints, 8.0);
+                return {
+                    waypoints: denseWaypoints,
+                    distanceM: data.distance_m || calculateDistanceM(startLat, startLng, endLat, endLng),
+                    durationSec: data.duration_sec || 60,
+                    source: data.source || "OSRM (OpenStreetMap Road Network)",
+                };
+            }
+        }
+    } catch (e) {
+        console.warn("OSRM road routing unavailable, falling back to street grid:", e);
+    }
+
+    // Resilient fallback: Manhattan street grid
+    const fallbackPath = generateStreetGridPath([startLat, startLng], [endLat, endLng], 80);
+    const distM = calculateDistanceM(startLat, startLng, endLat, endLng) * 1.28;
+    return {
+        waypoints: fallbackPath,
+        distanceM: distM,
+        durationSec: Math.max(20, Math.round(distM / 8.33)),
+        source: "Street Grid Fallback",
+    };
+}
+
+function resamplePath(points, stepMeters = 8.0) {
+    if (!points || points.length < 2) return points;
+    const result = [points[0]];
+    let accumulated = 0;
+
+    for (let i = 0; i < points.length - 1; i++) {
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const segDist = calculateDistanceM(p1[0], p1[1], p2[0], p2[1]);
+        if (segDist <= 0.001) continue;
+
+        let curDist = stepMeters - accumulated;
+        while (curDist < segDist) {
+            const t = curDist / segDist;
+            const lat = p1[0] + (p2[0] - p1[0]) * t;
+            const lng = p1[1] + (p2[1] - p1[1]) * t;
+            result.push([lat, lng]);
+            curDist += stepMeters;
+        }
+        accumulated = segDist - (curDist - stepMeters);
+    }
+    result.push(points[points.length - 1]);
+    return result;
+}
+
 function generateStreetGridPath(start, end, numIntermediateSteps = 80) {
     const [lat1, lng1] = start;
     const [lat2, lng2] = end;
 
-    // Corner turning nodes (Manhattan grid turns)
     const midLat = lat1 + (lat2 - lat1) * 0.55;
     const midLng = lng1 + (lng2 - lng1) * 0.45;
 
@@ -328,6 +405,7 @@ async function triggerUberRide() {
     // Switch Left Panel View: Booking -> Active Trip
     switchPanelView("view-trip");
     clearRouteGraphics();
+    clearCandidateDistances();
 
     logTerminal(`Initiating H3 hexagonal dispatch for ${selectedTier}...`, "trip");
 
@@ -367,17 +445,39 @@ async function triggerUberRide() {
     }
 
     currentTripData = dispatchRes;
+    currentAuditData = dispatchRes.audit || {
+        trip_id: dispatchRes.trip_id,
+        candidates_matrix: dispatchRes.candidates_matrix || [],
+        mathematical_rationale: dispatchRes.mathematical_rationale || "",
+    };
+
     const matchedDriver = dispatchRes.matched_driver;
     const tripId = dispatchRes.trip_id;
+    const candidates = dispatchRes.candidates_matrix || currentAuditData.candidates_matrix || [];
 
-    logTerminal(`Matched nearby Driver ${matchedDriver.driver_id.slice(0, 8)} (${matchedDriver.extra_meta?.name || "Driver"}) via Redis Lua script in ${dispatchRes.latency_ms}ms`, "match");
+    logTerminal(
+        `Matched nearby Driver ${matchedDriver.driver_id.slice(0, 8)} (${matchedDriver.extra_meta?.name || "Driver"}) via Redis Lua script in ${dispatchRes.latency_ms}ms`,
+        "match"
+    );
 
-    // Populate Driver Card in Left Panel
+    // Update Left Panel Driver Card
     document.getElementById("driver-name-val").textContent = matchedDriver.extra_meta?.name || "Dmitri Volkov";
     document.getElementById("driver-rating-val").textContent = matchedDriver.rating || "4.95";
     document.getElementById("driver-vehicle-val").textContent = `${matchedDriver.extra_meta?.vehicle_model || "BMW i4"} • Electric Blue`;
     document.getElementById("driver-plate-val").textContent = matchedDriver.extra_meta?.license_plate || "7HEX005";
     document.getElementById("driver-hex-val").textContent = matchedDriver.cell;
+
+    // Update Audit Trigger Card Subtitle
+    if (candidates.length > 1) {
+        const runnerUp = candidates[1];
+        const distSaved = Math.round(runnerUp.distance_m - candidates[0].distance_m);
+        document.getElementById("audit-summary-sub").textContent = `Rank #1 of ${candidates.length} cabs • Saved ${distSaved > 0 ? distSaved : 0}m vs Runner-up`;
+    } else {
+        document.getElementById("audit-summary-sub").textContent = `Rank #1 • Evaluated ${candidates.length} active fleet cabs`;
+    }
+
+    // Render Candidate Distances on Map (Data-Driven Visual Rationale)
+    renderCandidateDistanceLines(currentPickup, candidates);
 
     // Find car start position: use existing marker position if available!
     let driverStart = [matchedDriver.lat, matchedDriver.lng];
@@ -387,12 +487,14 @@ async function triggerUberRide() {
     }
 
     // =========================================================================
-    // Phase 2: Driver En Route to Customer (Pickup Drive Simulation)
+    // Phase 2: Driver En Route to Customer (OSRM Predefined Road Routing)
     // =========================================================================
     document.getElementById("trip-stage-title").textContent = "Driver is on the way to you";
     document.getElementById("prog-trip-status").textContent = "Picking up customer";
 
-    const pickupPath = generateStreetGridPath(driverStart, currentPickup, 60);
+    logTerminal("Fetching real road route from OpenFreeMap/OSRM for driver pickup...", "trip");
+    const pickupRoadRoute = await fetchRoadRoute(driverStart[0], driverStart[1], currentPickup[0], currentPickup[1]);
+    const pickupPath = pickupRoadRoute.waypoints;
 
     // Render Clean Glowing Pickup Route Line
     renderCleanRouteLine(pickupPath, "#00D2FF", true);
@@ -400,7 +502,8 @@ async function triggerUberRide() {
     // Frame the pickup journey with left-panel offset
     fitMapToRoute(driverStart, currentPickup);
 
-    // Smoothly animate the EXACT VISIBLE CAR driving to Customer
+    // Smoothly animate the EXACT VISIBLE CAR driving along real roads to Customer
+    const pickupDuration = Math.max(3500, Math.min(8000, (pickupRoadRoute.distanceM / 20.0) * 1000 / simulationSpeedMultiplier));
     await animateCarAlongPath(matchedDriver.driver_id, pickupPath, {
         onProgress: (p, distRem, currentPos) => {
             document.getElementById("trip-distance-rem").textContent = `${Math.round(distRem)} m away`;
@@ -409,13 +512,13 @@ async function triggerUberRide() {
             document.getElementById("progress-bar-car").style.left = `${pct}%`;
             sendTelemetryPing(matchedDriver.driver_id, currentPos[0], currentPos[1], "DISPATCH_OFFERED");
         },
-        durationMs: 7000 / simulationSpeedMultiplier,
+        durationMs: pickupDuration,
     });
 
     // =========================================================================
-    // Phase 3: Customer Picked Up & Driving to Destination
+    // Phase 3: Customer Picked Up & Driving to Destination (OSRM Real Roads)
     // =========================================================================
-    logTerminal(`Customer picked up! En route to destination...`, "trip");
+    logTerminal(`Customer picked up! En route to destination via predefined roads...`, "trip");
     document.getElementById("trip-stage-title").textContent = "En Route to Destination";
     document.getElementById("prog-trip-status").textContent = "On Trip";
     document.getElementById("trip-stage-pill").style.borderColor = "rgba(39, 110, 241, 0.4)";
@@ -423,15 +526,19 @@ async function triggerUberRide() {
 
     createPulseAura(currentPickup, "#06C167");
 
-    // Clear pickup line and render Clean Destination Route Line
+    // Clear pickup line and candidate lines so destination view is pristine
     clearRouteGraphics();
-    const tripPath = generateStreetGridPath(currentPickup, currentDropoff, 80);
-    renderCleanRouteLine(tripPath, "#276EF1", false);
+    clearCandidateDistances();
 
+    logTerminal("Fetching real road network waypoints to destination...", "trip");
+    const destRoadRoute = await fetchRoadRoute(currentPickup[0], currentPickup[1], currentDropoff[0], currentDropoff[1]);
+    const tripPath = destRoadRoute.waypoints;
+
+    renderCleanRouteLine(tripPath, "#276EF1", false);
     fitMapToRoute(currentPickup, currentDropoff);
     tripStartTime = Date.now();
 
-    // Smoothly animate car driving to Destination
+    const tripDuration = Math.max(4500, Math.min(10000, (destRoadRoute.distanceM / 20.0) * 1000 / simulationSpeedMultiplier));
     await animateCarAlongPath(matchedDriver.driver_id, tripPath, {
         onProgress: (p, distRem, currentPos) => {
             document.getElementById("trip-distance-rem").textContent = `${(distRem / 1000).toFixed(1)} km left`;
@@ -440,13 +547,13 @@ async function triggerUberRide() {
             document.getElementById("progress-bar-car").style.left = `${pct}%`;
             sendTelemetryPing(matchedDriver.driver_id, currentPos[0], currentPos[1], "ON_TRIP");
         },
-        durationMs: 8500 / simulationSpeedMultiplier,
+        durationMs: tripDuration,
     });
 
     // =========================================================================
     // Phase 4: Arrival & Trip Completion
     // =========================================================================
-    logTerminal(`Arrived at destination. Logging to TimescaleDB...`, "trip");
+    logTerminal(`Arrived at destination. Event persisted to TimescaleDB.`, "trip");
     createPulseAura(currentDropoff, "#38BDF8");
 
     // Complete trip on backend
@@ -461,12 +568,131 @@ async function triggerUberRide() {
     // Switch Left Panel View: Active Trip -> Receipt
     switchPanelView("view-receipt");
     const elapsedSec = Math.round((Date.now() - tripStartTime) / 1000);
-    const totalDistM = calculateDistanceM(currentPickup[0], currentPickup[1], currentDropoff[0], currentDropoff[1]);
+    const finalDistKm = (destRoadRoute.distanceM / 1000.0).toFixed(1);
 
     document.getElementById("receipt-fare").textContent = document.getElementById("fare-uberx").textContent;
-    document.getElementById("receipt-dist").textContent = `${(totalDistM / 1000).toFixed(1)} km`;
+    document.getElementById("receipt-dist").textContent = `${finalDistKm} km`;
     document.getElementById("receipt-duration").textContent = `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
     document.getElementById("receipt-latency").textContent = `${dispatchRes.latency_ms} ms`;
+}
+
+// -------------------------------------------------------------
+// Candidate Distance Lines (Explainability on Map)
+// -------------------------------------------------------------
+function renderCandidateDistanceLines(pickup, candidates) {
+    clearCandidateDistances();
+    if (!candidates || candidates.length === 0) return;
+
+    candidates.forEach(cand => {
+        const cabLatLng = [cand.lat, cand.lng];
+        const isWinner = cand.is_selected;
+
+        // Line from pickup to candidate cab
+        const line = L.polyline([pickup, cabLatLng], {
+            color: isWinner ? "#06C167" : "#FFFFFF",
+            weight: isWinner ? 2.5 : 1.2,
+            opacity: isWinner ? 0.85 : 0.28,
+            dashArray: isWinner ? "6, 8" : "3, 6",
+        });
+
+        // Floating badge at line midpoint
+        const midLat = (pickup[0] + cand.lat) / 2.0;
+        const midLng = (pickup[1] + cand.lng) / 2.0;
+
+        const badgeHtml = isWinner
+            ? `<div class="cab-dist-badge chosen"><i class="fa-solid fa-check"></i> ${cand.name}: ${Math.round(cand.distance_m)}m (Selected)</div>`
+            : `<div class="cab-dist-badge">${cand.name}: ${Math.round(cand.distance_m)}m (+${Math.round(cand.distance_diff_vs_selected_m)}m)</div>`;
+
+        const badgeIcon = L.divIcon({
+            className: "",
+            html: badgeHtml,
+            iconSize: [160, 22],
+            iconAnchor: [80, 11],
+        });
+
+        const badgeMarker = L.marker([midLat, midLng], { icon: badgeIcon });
+
+        if (showCandidateDistances) {
+            line.addTo(map);
+            badgeMarker.addTo(map);
+        }
+
+        candidateDistanceLayers.push(line, badgeMarker);
+    });
+}
+
+function clearCandidateDistances() {
+    candidateDistanceLayers.forEach(l => map.removeLayer(l));
+    candidateDistanceLayers = [];
+}
+
+// -------------------------------------------------------------
+// Mathematical Dispatch Audit Modal (Data-Driven Explainability)
+// -------------------------------------------------------------
+function openAuditModal() {
+    const modal = document.getElementById("audit-modal");
+    if (!modal) return;
+
+    const data = currentAuditData || (currentTripData ? (currentTripData.audit || currentTripData) : null);
+    if (!data) {
+        alert("No dispatch event has occurred yet. Request a ride first to view real-time candidate matrix.");
+        return;
+    }
+
+    const tripId = data.trip_id || "TRIP-LIVE";
+    const candidates = data.candidates_matrix || [];
+    const rationale = data.mathematical_rationale || "All candidate cabs evaluated across physical road distance, ETA, and compass heading alignment.";
+
+    document.getElementById("modal-trip-meta").textContent = `Trip ID: ${tripId.slice(0, 12)}... • Evaluated ${candidates.length} Available Cabs in Real-Time`;
+    document.getElementById("audit-rationale-text").textContent = rationale;
+
+    const tbody = document.getElementById("audit-table-body");
+    tbody.innerHTML = "";
+
+    candidates.forEach(c => {
+        const tr = document.createElement("tr");
+        if (c.is_selected) tr.classList.add("selected-row");
+
+        const deltaDistStr = c.is_selected ? "—" : `+${Math.round(c.distance_diff_vs_selected_m)} m`;
+        const deltaColor = c.is_selected ? "#a7f3d0" : "#f87171";
+
+        tr.innerHTML = `
+            <td>
+                <span class="badge-rank ${c.is_selected ? 'gold' : ''}">#${c.rank}</span>
+            </td>
+            <td>
+                <strong>${c.name}</strong><br>
+                <span style="color: #a6a6a6; font-size: 0.7rem;">${c.vehicle_model} • ${c.license_plate}</span>
+            </td>
+            <td><strong>${Math.round(c.distance_m)} m</strong></td>
+            <td style="color: ${deltaColor}; font-weight: 600;">${deltaDistStr}</td>
+            <td>~${c.eta_seconds} s</td>
+            <td>${c.bearing_diff_deg !== undefined ? c.bearing_diff_deg : 0}°</td>
+            <td><strong>${c.final_score.toFixed(4)}</strong></td>
+            <td>
+                <span class="${c.is_selected ? 'badge-status-chosen' : 'badge-status-other'}">
+                    ${c.status || (c.is_selected ? 'SELECTED (Winner)' : 'EVALUATED')}
+                </span>
+            </td>
+        `;
+
+        // Interactive row click: pan map to that cab and create a pulse aura
+        tr.addEventListener("click", () => {
+            if (c.lat && c.lng) {
+                map.panTo([c.lat, c.lng]);
+                createPulseAura([c.lat, c.lng], c.is_selected ? "#06C167" : "#00D2FF");
+            }
+        });
+
+        tbody.appendChild(tr);
+    });
+
+    modal.classList.remove("hidden");
+}
+
+function closeAuditModal() {
+    const modal = document.getElementById("audit-modal");
+    if (modal) modal.classList.add("hidden");
 }
 
 // -------------------------------------------------------------
@@ -598,7 +824,7 @@ function createPulseAura(coords, color = "#00D2FF") {
 }
 
 // -------------------------------------------------------------
-// Background Fleet Cruising Simulation
+// Autonomous Fleet Cruising Simulation
 // -------------------------------------------------------------
 function toggleFleetSimulation() {
     isFleetSimActive = !isFleetSimActive;
@@ -739,6 +965,7 @@ function inspectDriver(driverId, name, vehicle) {
 
 function logTerminal(msg, category = "sys") {
     const log = document.getElementById("terminal-event-log");
+    if (!log) return;
     const line = document.createElement("div");
     line.className = `log-line ${category}`;
     const time = new Date().toLocaleTimeString();
@@ -777,6 +1004,7 @@ function initEventListeners() {
 
             updateRouteMarkers(currentPickup, currentDropoff);
             clearRouteGraphics();
+            clearCandidateDistances();
         });
     });
 
@@ -812,6 +1040,7 @@ function initEventListeners() {
         switchPanelView("view-booking");
         document.getElementById("btn-request-uber").disabled = false;
         clearRouteGraphics();
+        clearCandidateDistances();
         currentTripData = null;
         logTerminal("Ride cancelled by user.", "sys");
     });
@@ -825,6 +1054,7 @@ function initEventListeners() {
         if (currentTripData) {
             updateCarMarker(currentTripData.matched_driver.driver_id, currentDropoff[0], currentDropoff[1], 0, "IDLE");
         }
+        clearCandidateDistances();
         switchPanelView("view-receipt");
         logTerminal("Simulation fast-forwarded to destination arrival.", "trip");
     });
@@ -834,6 +1064,7 @@ function initEventListeners() {
         switchPanelView("view-booking");
         document.getElementById("btn-request-uber").disabled = false;
         clearRouteGraphics();
+        clearCandidateDistances();
         currentTripData = null;
     });
 
@@ -846,6 +1077,36 @@ function initEventListeners() {
         const show = e.currentTarget.classList.contains("active");
         Object.values(hexLayers).forEach(l => show ? map.addLayer(l) : map.removeLayer(l));
     });
+
+    // Toggle Fleet Distances to all Cabs
+    const btnDistances = document.getElementById("btn-toggle-distances");
+    if (btnDistances) {
+        btnDistances.addEventListener("click", (e) => {
+            e.currentTarget.classList.toggle("active");
+            showCandidateDistances = e.currentTarget.classList.contains("active");
+            candidateDistanceLayers.forEach(l => {
+                if (showCandidateDistances) map.addLayer(l);
+                else map.removeLayer(l);
+            });
+        });
+    }
+
+    // Mathematical Audit Modal Triggers & Close
+    const btnOpenAudit = document.getElementById("btn-open-audit");
+    if (btnOpenAudit) btnOpenAudit.addEventListener("click", openAuditModal);
+
+    const btnReceiptAudit = document.getElementById("btn-receipt-open-audit");
+    if (btnReceiptAudit) btnReceiptAudit.addEventListener("click", openAuditModal);
+
+    const btnCloseAudit = document.getElementById("btn-close-audit-modal");
+    if (btnCloseAudit) btnCloseAudit.addEventListener("click", closeAuditModal);
+
+    const auditModalBackdrop = document.getElementById("audit-modal");
+    if (auditModalBackdrop) {
+        auditModalBackdrop.addEventListener("click", (e) => {
+            if (e.target === auditModalBackdrop) closeAuditModal();
+        });
+    }
 
     // Drawer Toggles
     document.getElementById("btn-toggle-drawer").addEventListener("click", () => {
