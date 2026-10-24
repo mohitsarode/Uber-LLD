@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # FastAPI Asynchronous Dispatch & Telemetry Engine
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hexdispatch_engine
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=true
+      - ENVIRONMENT=development
+      - REDIS_URL=redis://redis:6379/0
+      - USE_FAKEREDIS=false
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@timescaledb:5432/hexdispatch
+      - USE_SQLITE=false
+      - H3_DEFAULT_RESOLUTION=8
+      - H3_DISPATCH_MAX_KRING=3
+      - TELEMETRY_BUFFER_BATCH_SIZE=50
+      - TELEMETRY_BUFFER_FLUSH_INTERVAL_SEC=1.0
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # In-Memory Distributed Spatial Mesh Layer
+  redis:
+    image: redis:7-alpine
+    container_name: hexdispatch_redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Time-Series Telemetry & Persistent Registry (TimescaleDB / PostgreSQL)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: hexdispatch_timescaledb
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=hexdispatch
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hexdispatch"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Dynamic WebSocket Load Generator (Locust)
+  locust:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hexdispatch_locust
+    ports:
+      - "8089:8089"
+    command: ["locust", "-f", "load_test/locustfile.py", "--host", "http://app:8000"]
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  timescaledb_data:
