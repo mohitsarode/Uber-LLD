@@ -58,6 +58,7 @@ async def sync_seeded_drivers_to_mesh() -> None:
                     driver_name=user.name,
                     rating=user.rating,
                     vehicle_model=profile.vehicle_model,
+                    license_plate=profile.license_plate,
                 )
         logger.info("Synchronized database drivers into Redis spatial mesh.")
     except Exception as e:

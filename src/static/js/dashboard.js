@@ -1,11 +1,11 @@
 // Uber HexDispatch - Core Frontend Controller & Drive Simulation Engine
 
-const SF_CENTER = [37.774929, -122.419416];
+const SF_CENTER = [37.7850, -122.4080];
 
 // Presets Coordinates
 const ROUTE_PRESETS = {
-    "downtown-ferry": {
-        pickupName: "Financial District (Market & Montgomery)",
+    "financial-ferry": {
+        pickupName: "Financial District (Montgomery St)",
         pickup: [37.7895, -122.4010],
         dropoffName: "Ferry Building (The Embarcadero)",
         dropoff: [37.7955, -122.3937],
@@ -37,15 +37,16 @@ let rippleLayers = [];
 let pickupMarker = null;
 let dropoffMarker = null;
 
-let currentPresetKey = "downtown-ferry";
-let currentPickup = ROUTE_PRESETS["downtown-ferry"].pickup;
-let currentDropoff = ROUTE_PRESETS["downtown-ferry"].dropoff;
+let currentPresetKey = "financial-ferry";
+let currentPickup = ROUTE_PRESETS["financial-ferry"].pickup;
+let currentDropoff = ROUTE_PRESETS["financial-ferry"].dropoff;
 let selectedTier = "UberX";
 let selectedMultiplier = 1.0;
+let simulationSpeedMultiplier = 2.0;
 
 let isFleetSimActive = false;
 let fleetSimulationInterval = null;
-let simulatedFleet = [];
+let activeDriversList = [];
 let activeTripAnimId = null;
 let tripStartTime = null;
 let currentTripData = null;
@@ -55,20 +56,13 @@ let mapClickMode = null; // 'pickup' | 'dropoff' | null
 // Top-Down Sleek Uber Car SVG
 const UBER_CAR_SVG = `
 <svg class="uber-car-marker-svg" viewBox="0 0 40 60" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Soft Drop Shadow -->
-  <rect x="7" y="5" width="26" height="50" rx="9" fill="#000" opacity="0.4" />
-  <!-- Main Vehicle Body -->
+  <rect x="7" y="5" width="26" height="50" rx="9" fill="#000" opacity="0.5" />
   <rect x="8" y="4" width="24" height="48" rx="8" fill="#1C1C1E" stroke="#FFFFFF" stroke-width="1.8"/>
-  <!-- Front Windshield -->
   <path d="M12 16C12 14.5 13 13 15 13H25C27 13 28 14.5 28 16L27 21H13L12 16Z" fill="#38BDF8" opacity="0.85"/>
-  <!-- Roof Top -->
   <rect x="13" y="21" width="14" height="15" rx="3" fill="#2C2C2E"/>
-  <!-- Rear Windshield -->
   <path d="M13 36H27L28 40C28 41.5 27 42.5 25 42.5H15C13 42.5 12 41.5 12 40L13 36Z" fill="#38BDF8" opacity="0.6"/>
-  <!-- Front Headlights (Warm White Glow) -->
   <rect x="9.5" y="4.5" width="4.5" height="2.5" rx="1" fill="#FEF08A"/>
   <rect x="26" y="4.5" width="4.5" height="2.5" rx="1" fill="#FEF08A"/>
-  <!-- Rear Taillights (Red LED) -->
   <rect x="10" y="50" width="4" height="1.8" rx="0.5" fill="#EF4444"/>
   <rect x="26" y="50" width="4" height="1.8" rx="0.5" fill="#EF4444"/>
 </svg>
@@ -82,21 +76,27 @@ document.addEventListener("DOMContentLoaded", () => {
     initEventListeners();
     connectMonitorWebSocket();
     loadActiveHexGrid();
-    loadInitialFleet();
+    loadRealDriversFromBackend();
 });
 
 function initMap() {
     map = L.map("map", {
         center: SF_CENTER,
-        zoom: 13.5,
+        zoom: 14,
         zoomControl: false,
     });
 
-    // Sleek CartoDB Dark Matter Tiles (Uber contrast)
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution: '&copy; Uber H3 Spatial &copy; OpenStreetMap',
-        subdomains: "abcd",
+    // Clean Esri World Dark Gray Canvas (Zero Watermarks, No "API KEY REQUIRED")
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+        attribution: '&copy; Uber H3 Spatial &copy; Esri &copy; OpenStreetMap',
         maxZoom: 19,
+    }).addTo(map);
+
+    // Reference Roads and Street Labels Layer
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
+        attribution: '',
+        maxZoom: 19,
+        opacity: 0.75,
     }).addTo(map);
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
@@ -116,7 +116,6 @@ function initMap() {
             updateRouteMarkers(currentPickup, currentDropoff);
             setMapClickMode(null);
         } else {
-            // Inspect hexagon on map click
             inspectPoint(e.latlng.lat, e.latlng.lng);
         }
     });
@@ -143,13 +142,83 @@ function updateRouteMarkers(pickup, dropoff) {
     pickupMarker = L.marker(pickup, { icon: pickupIcon }).addTo(map);
     dropoffMarker = L.marker(dropoff, { icon: dropoffIcon }).addTo(map);
 
-    // Update Fares
+    // Calculate Fares
     const distM = calculateDistanceM(pickup[0], pickup[1], dropoff[0], dropoff[1]);
     const distKm = distM / 1000.0;
     const base = Math.max(8.0, 4.0 + (distKm * 2.10));
     document.getElementById("fare-uberx").textContent = `$${base.toFixed(2)}`;
     document.getElementById("fare-comfort").textContent = `$${(base * 1.35).toFixed(2)}`;
     document.getElementById("fare-black").textContent = `$${(base * 1.95).toFixed(2)}`;
+
+    // Auto fit with left padding so the panel doesn't block the route
+    fitMapToRoute(pickup, dropoff);
+}
+
+function fitMapToRoute(p1, p2) {
+    const bounds = L.latLngBounds([p1, p2]);
+    map.fitBounds(bounds, {
+        paddingTopLeft: [420, 60],
+        paddingBottomRight: [60, 60],
+        maxZoom: 15,
+    });
+}
+
+// -------------------------------------------------------------
+// Real Driver Fleet Management (Single Source of Truth)
+// -------------------------------------------------------------
+async function loadRealDriversFromBackend() {
+    try {
+        const res = await fetch("/api/v1/drivers");
+        const drivers = await res.json();
+        activeDriversList = drivers;
+
+        drivers.forEach(d => {
+            // Use real driver ID, real name, vehicle model, and coordinates from Redis/DB
+            updateCarMarker(d.driver_id, d.lat, d.lng, 90, d.status || "IDLE", d.name, d.vehicle_model);
+        });
+
+        document.getElementById("stat-drivers").textContent = Object.keys(driverMarkers).length;
+        logTerminal(`Synchronized ${drivers.length} real fleet drivers from Redis mesh.`, "sys");
+    } catch (e) {
+        console.error("Failed to fetch drivers from backend:", e);
+    }
+}
+
+function updateCarMarker(driverId, lat, lng, heading = 0, status = "IDLE", name = "Driver", vehicle = "Sedan") {
+    if (!lat || !lng) return;
+
+    let markerClass = "uber-car-marker-container";
+    if (status === "DISPATCH_OFFERED") markerClass += " matched";
+    if (status === "ON_TRIP") markerClass += " on-trip";
+
+    const customIcon = L.divIcon({
+        className: "",
+        html: `
+            <div class="${markerClass}" id="car-wrap-${driverId}" style="transform: rotate(${Math.round(heading)}deg);">
+                ${UBER_CAR_SVG}
+            </div>
+        `,
+        iconSize: [36, 48],
+        iconAnchor: [18, 24],
+    });
+
+    if (driverMarkers[driverId]) {
+        driverMarkers[driverId].setLatLng([lat, lng]);
+        driverMarkers[driverId].setIcon(customIcon);
+        // Update stored position
+        const found = activeDriversList.find(d => d.driver_id === driverId);
+        if (found) {
+            found.lat = lat;
+            found.lng = lng;
+            found.status = status;
+        }
+    } else {
+        const marker = L.marker([lat, lng], { icon: customIcon }).addTo(map);
+        marker.on("click", () => inspectDriver(driverId, name, vehicle));
+        driverMarkers[driverId] = marker;
+    }
+
+    document.getElementById("stat-drivers").textContent = Object.keys(driverMarkers).length;
 }
 
 // -------------------------------------------------------------
@@ -180,16 +249,14 @@ function connectMonitorWebSocket() {
 }
 
 function handleMonitorMessage(msg) {
-    if (msg.event === "SNAPSHOT") {
-        if (msg.drivers) {
-            msg.drivers.forEach(d => updateCarMarker(d.driver_id, d.lat, d.lng, d.heading || 0, d.status || "IDLE"));
-            document.getElementById("stat-drivers").textContent = Object.keys(driverMarkers).length;
-        }
-    } else if (msg.event === "DRIVER_PING") {
+    if (msg.event === "DRIVER_PING") {
         telemetryFrameCount++;
         document.getElementById("stat-ingested").textContent = telemetryFrameCount;
         const d = msg.data;
-        updateCarMarker(d.driver_id, d.lat, d.lng, d.heading || 0, d.status || "IDLE");
+        // Only update if not the car in the active ride simulation to prevent jitter
+        if (!currentTripData || currentTripData.matched_driver.driver_id !== d.driver_id) {
+            updateCarMarker(d.driver_id, d.lat, d.lng, d.heading || 0, d.status || "IDLE");
+        }
     } else if (msg.event === "DISPATCH_MATCH") {
         const d = msg.data;
         document.getElementById("stat-latency").textContent = `${d.latency_ms} ms`;
@@ -198,62 +265,22 @@ function handleMonitorMessage(msg) {
 }
 
 // -------------------------------------------------------------
-// Car Marker Management
+// Street-Grid Route Generation
 // -------------------------------------------------------------
-function updateCarMarker(driverId, lat, lng, heading = 0, status = "IDLE") {
-    if (!lat || !lng) return;
-
-    let markerClass = "uber-car-marker-container";
-    if (status === "DISPATCH_OFFERED") markerClass += " matched";
-    if (status === "ON_TRIP") markerClass += " on-trip";
-
-    const customIcon = L.divIcon({
-        className: "",
-        html: `
-            <div class="${markerClass}" id="car-wrap-${driverId}" style="transform: rotate(${Math.round(heading)}deg);">
-                ${UBER_CAR_SVG}
-            </div>
-        `,
-        iconSize: [36, 48],
-        iconAnchor: [18, 24],
-    });
-
-    if (driverMarkers[driverId]) {
-        driverMarkers[driverId].setLatLng([lat, lng]);
-        driverMarkers[driverId].setIcon(customIcon);
-    } else {
-        const marker = L.marker([lat, lng], { icon: customIcon }).addTo(map);
-        marker.on("click", () => inspectDriver(driverId));
-        driverMarkers[driverId] = marker;
-    }
-
-    document.getElementById("stat-drivers").textContent = Object.keys(driverMarkers).length;
-}
-
-// -------------------------------------------------------------
-// Uber Street Grid Waypoint Routing Engine
-// -------------------------------------------------------------
-/**
- * Generates clean street-grid waypoints between two coordinates.
- * Rather than cutting across buildings, this simulates realistic
- * San Francisco street grid navigation (Manhattan / Market St axis turns).
- */
 function generateStreetGridPath(start, end, numIntermediateSteps = 80) {
     const [lat1, lng1] = start;
     const [lat2, lng2] = end;
 
-    // Intermediate turning corner (Manhattan grid corner)
+    // Corner turning nodes (Manhattan grid turns)
     const midLat = lat1 + (lat2 - lat1) * 0.55;
     const midLng = lng1 + (lng2 - lng1) * 0.45;
 
-    // Three anchor nodes: Start -> Corner 1 -> Corner 2 -> End
     const corner1 = [lat1, midLng];
     const corner2 = [midLat, lng2];
 
     const anchors = [start, corner1, corner2, end];
     const path = [];
 
-    // Interpolate points smoothly along segment legs
     for (let i = 0; i < anchors.length - 1; i++) {
         const pA = anchors[i];
         const pB = anchors[i + 1];
@@ -296,20 +323,15 @@ function calculateBearing(lat1, lon1, lat2, lon2) {
 // -------------------------------------------------------------
 async function triggerUberRide() {
     const btn = document.getElementById("btn-request-uber");
-    const statusSheet = document.getElementById("status-sheet");
-    const bookingCard = document.getElementById("booking-card");
-
     btn.disabled = true;
 
-    // Show Phase 1: Dispatching Radar
-    statusSheet.classList.remove("hidden");
-    showStatusPhase("phase-dispatching");
+    // Switch Left Panel View: Booking -> Active Trip
+    switchPanelView("view-trip");
     clearRouteGraphics();
 
     logTerminal(`Initiating H3 hexagonal dispatch for ${selectedTier}...`, "trip");
 
-    // 1. Trigger Visual H3 Ripple Expansion
-    const pickupH3Res = await (await fetch(`/api/v1/spatial/resolve?lat=${currentPickup[0]}&lng=${currentPickup[1]}&resolution=8`)).json();
+    // 1. Trigger Visual H3 Ripple Expansion around Pickup
     visualizeHexRipple(currentPickup, parseInt(document.getElementById("slider-kring").value));
 
     // 2. Call Backend Dispatch API
@@ -330,16 +352,17 @@ async function triggerUberRide() {
         dispatchRes = await response.json();
     } catch (e) {
         logTerminal(`Dispatch API error: ${e}`, "sys");
+        switchPanelView("view-booking");
         btn.disabled = false;
         return;
     }
 
     if (!dispatchRes.success) {
-        document.getElementById("dispatching-subtext").textContent = "No drivers found within search radius. Expanding fleet...";
+        logTerminal("No available drivers in search radius. Expanding radius...", "sys");
         setTimeout(() => {
-            statusSheet.classList.add("hidden");
+            switchPanelView("view-booking");
             btn.disabled = false;
-        }, 3000);
+        }, 2500);
         return;
     }
 
@@ -347,82 +370,83 @@ async function triggerUberRide() {
     const matchedDriver = dispatchRes.matched_driver;
     const tripId = dispatchRes.trip_id;
 
-    logTerminal(`Driver ${matchedDriver.driver_id} locked via atomic Redis Lua lease. Starting simulation...`, "match");
+    logTerminal(`Matched nearby Driver ${matchedDriver.driver_id.slice(0, 8)} (${matchedDriver.extra_meta?.name || "Driver"}) via Redis Lua script in ${dispatchRes.latency_ms}ms`, "match");
 
-    // Populate Driver Card
-    document.getElementById("driver-name-val").textContent = matchedDriver.extra_meta?.name || "Marcus Vance";
+    // Populate Driver Card in Left Panel
+    document.getElementById("driver-name-val").textContent = matchedDriver.extra_meta?.name || "Dmitri Volkov";
     document.getElementById("driver-rating-val").textContent = matchedDriver.rating || "4.95";
-    document.getElementById("driver-vehicle-val").textContent = `${matchedDriver.extra_meta?.vehicle_model || "Tesla Model 3"} • White`;
-    document.getElementById("driver-plate-val").textContent = matchedDriver.extra_meta?.license_plate || "7HEX001";
+    document.getElementById("driver-vehicle-val").textContent = `${matchedDriver.extra_meta?.vehicle_model || "BMW i4"} • Electric Blue`;
+    document.getElementById("driver-plate-val").textContent = matchedDriver.extra_meta?.license_plate || "7HEX005";
     document.getElementById("driver-hex-val").textContent = matchedDriver.cell;
 
-    // Small delay to let rider see the match
-    await new Promise(r => setTimeout(r, 1200));
-
-    // Collapse booking card slightly to give full focus to trip
-    bookingCard.classList.add("collapsed");
+    // Find car start position: use existing marker position if available!
+    let driverStart = [matchedDriver.lat, matchedDriver.lng];
+    if (driverMarkers[matchedDriver.driver_id]) {
+        const existingLatLng = driverMarkers[matchedDriver.driver_id].getLatLng();
+        driverStart = [existingLatLng.lat, existingLatLng.lng];
+    }
 
     // =========================================================================
     // Phase 2: Driver En Route to Customer (Pickup Drive Simulation)
     // =========================================================================
-    showStatusPhase("phase-active-trip");
     document.getElementById("trip-stage-title").textContent = "Driver is on the way to you";
     document.getElementById("prog-trip-status").textContent = "Picking up customer";
 
-    const driverStart = [matchedDriver.lat, matchedDriver.lng];
-    const pickupPath = generateStreetGridPath(driverStart, currentPickup, 75);
+    const pickupPath = generateStreetGridPath(driverStart, currentPickup, 60);
 
     // Render Clean Glowing Pickup Route Line
     renderCleanRouteLine(pickupPath, "#00D2FF", true);
 
-    // Smoothly animate matched car driving to Customer
+    // Frame the pickup journey with left-panel offset
+    fitMapToRoute(driverStart, currentPickup);
+
+    // Smoothly animate the EXACT VISIBLE CAR driving to Customer
     await animateCarAlongPath(matchedDriver.driver_id, pickupPath, {
         onProgress: (p, distRem, currentPos) => {
             document.getElementById("trip-distance-rem").textContent = `${Math.round(distRem)} m away`;
-            const pct = Math.round(p * 50); // 0% to 50%
+            const pct = Math.round(p * 50);
             document.getElementById("progress-bar-line").style.width = `${pct}%`;
             document.getElementById("progress-bar-car").style.left = `${pct}%`;
-            // Push telemetry to backend so mesh updates
             sendTelemetryPing(matchedDriver.driver_id, currentPos[0], currentPos[1], "DISPATCH_OFFERED");
         },
-        durationMs: 8000,
+        durationMs: 7000 / simulationSpeedMultiplier,
     });
 
     // =========================================================================
     // Phase 3: Customer Picked Up & Driving to Destination
     // =========================================================================
-    logTerminal(`Customer picked up at Market St! Heading to destination...`, "trip");
+    logTerminal(`Customer picked up! En route to destination...`, "trip");
     document.getElementById("trip-stage-title").textContent = "En Route to Destination";
     document.getElementById("prog-trip-status").textContent = "On Trip";
     document.getElementById("trip-stage-pill").style.borderColor = "rgba(39, 110, 241, 0.4)";
     document.getElementById("trip-stage-pill").style.color = "#60A5FA";
 
-    // Visual ping at pickup
     createPulseAura(currentPickup, "#06C167");
 
     // Clear pickup line and render Clean Destination Route Line
     clearRouteGraphics();
-    const tripPath = generateStreetGridPath(currentPickup, currentDropoff, 90);
+    const tripPath = generateStreetGridPath(currentPickup, currentDropoff, 80);
     renderCleanRouteLine(tripPath, "#276EF1", false);
 
+    fitMapToRoute(currentPickup, currentDropoff);
     tripStartTime = Date.now();
 
     // Smoothly animate car driving to Destination
     await animateCarAlongPath(matchedDriver.driver_id, tripPath, {
         onProgress: (p, distRem, currentPos) => {
             document.getElementById("trip-distance-rem").textContent = `${(distRem / 1000).toFixed(1)} km left`;
-            const pct = 50 + Math.round(p * 50); // 50% to 100%
+            const pct = 50 + Math.round(p * 50);
             document.getElementById("progress-bar-line").style.width = `${pct}%`;
             document.getElementById("progress-bar-car").style.left = `${pct}%`;
             sendTelemetryPing(matchedDriver.driver_id, currentPos[0], currentPos[1], "ON_TRIP");
         },
-        durationMs: 9500,
+        durationMs: 8500 / simulationSpeedMultiplier,
     });
 
     // =========================================================================
     // Phase 4: Arrival & Trip Completion
     // =========================================================================
-    logTerminal(`Destination reached. Finalizing trip receipt in TimescaleDB...`, "trip");
+    logTerminal(`Arrived at destination. Logging to TimescaleDB...`, "trip");
     createPulseAura(currentDropoff, "#38BDF8");
 
     // Complete trip on backend
@@ -434,8 +458,8 @@ async function triggerUberRide() {
         });
     } catch (e) {}
 
-    // Show Phase 4: Receipt
-    showStatusPhase("phase-completed");
+    // Switch Left Panel View: Active Trip -> Receipt
+    switchPanelView("view-receipt");
     const elapsedSec = Math.round((Date.now() - tripStartTime) / 1000);
     const totalDistM = calculateDistanceM(currentPickup[0], currentPickup[1], currentDropoff[0], currentDropoff[1]);
 
@@ -446,19 +470,18 @@ async function triggerUberRide() {
 }
 
 // -------------------------------------------------------------
-// Smooth 60 FPS Car Driving Animation Engine
+// Smooth 60 FPS Car Driving Animation
 // -------------------------------------------------------------
 function animateCarAlongPath(driverId, pathCoords, options) {
     return new Promise((resolve) => {
         const startTime = performance.now();
-        const duration = options.durationMs || 8000;
+        const duration = options.durationMs || 7000;
         const totalPoints = pathCoords.length;
 
         function step(now) {
             const elapsed = now - startTime;
             const progress = Math.min(1.0, elapsed / duration);
 
-            // Calculate current index in waypoint list
             const exactIdx = progress * (totalPoints - 1);
             const idxA = Math.floor(exactIdx);
             const idxB = Math.min(totalPoints - 1, idxA + 1);
@@ -467,15 +490,12 @@ function animateCarAlongPath(driverId, pathCoords, options) {
             const pA = pathCoords[idxA];
             const pB = pathCoords[idxB];
 
-            // Sub-waypoint interpolation
             const curLat = pA[0] + (pB[0] - pA[0]) * frac;
             const curLng = pA[1] + (pB[1] - pA[1]) * frac;
             const heading = calculateBearing(pA[0], pA[1], pB[0], pB[1]);
 
-            // Update car marker position and heading
             updateCarMarker(driverId, curLat, curLng, heading, "ON_TRIP");
 
-            // Remaining distance to destination
             const lastPt = pathCoords[pathCoords.length - 1];
             const distRem = calculateDistanceM(curLat, curLng, lastPt[0], lastPt[1]);
 
@@ -508,7 +528,7 @@ function renderCleanRouteLine(pathCoords, colorHex = "#276EF1", isDashed = false
         lineJoin: "round",
     }).addTo(map);
 
-    // 2. Crisp High-Contrast Core Route Line
+    // 2. Crisp Core Route Line
     const coreLine = L.polyline(pathCoords, {
         color: "#FFFFFF",
         weight: isDashed ? 3 : 3.5,
@@ -519,7 +539,6 @@ function renderCleanRouteLine(pathCoords, colorHex = "#276EF1", isDashed = false
     }).addTo(map);
 
     routeLayers.push(glowLine, coreLine);
-    map.fitBounds(glowLine.getBounds().pad(0.2));
 }
 
 function clearRouteGraphics() {
@@ -579,7 +598,7 @@ function createPulseAura(coords, color = "#00D2FF") {
 }
 
 // -------------------------------------------------------------
-// Background Autonomous Fleet Simulation
+// Background Fleet Cruising Simulation
 // -------------------------------------------------------------
 function toggleFleetSimulation() {
     isFleetSimActive = !isFleetSimActive;
@@ -589,22 +608,29 @@ function toggleFleetSimulation() {
     if (isFleetSimActive) {
         btnText.textContent = "Pause Fleet";
         btn.classList.add("active");
-        logTerminal("Autonomous Uber fleet simulation started across San Francisco.", "sys");
+        logTerminal("Autonomous Uber fleet cruising started across San Francisco.", "sys");
 
         fleetSimulationInterval = setInterval(() => {
-            simulatedFleet.forEach(car => {
-                // Advance position along heading
-                const rad = car.heading * Math.PI / 180.0;
-                car.lat += Math.cos(rad) * 0.00035;
-                car.lng += Math.sin(rad) * 0.00035;
-
-                // Random slight street turn
-                if (Math.random() < 0.2) {
-                    car.heading = (car.heading + (Math.random() * 40 - 20) + 360) % 360;
+            activeDriversList.forEach(car => {
+                // Don't move the car if it's currently on an active dispatched trip!
+                if (currentTripData && currentTripData.matched_driver.driver_id === car.driver_id) {
+                    return;
                 }
 
-                updateCarMarker(car.id, car.lat, car.lng, car.heading, "IDLE");
-                sendTelemetryPing(car.id, car.lat, car.lng, "IDLE");
+                const heading = car.heading || Math.floor(Math.random() * 360);
+                const rad = heading * Math.PI / 180.0;
+                car.lat += Math.cos(rad) * 0.0003;
+                car.lng += Math.sin(rad) * 0.0003;
+
+                // Random slight street turn
+                if (Math.random() < 0.25) {
+                    car.heading = (heading + (Math.random() * 40 - 20) + 360) % 360;
+                } else {
+                    car.heading = heading;
+                }
+
+                updateCarMarker(car.driver_id, car.lat, car.lng, car.heading, "IDLE", car.name, car.vehicle_model);
+                sendTelemetryPing(car.driver_id, car.lat, car.lng, "IDLE");
             });
         }, 1500);
     } else {
@@ -615,20 +641,6 @@ function toggleFleetSimulation() {
             fleetSimulationInterval = null;
         }
         logTerminal("Autonomous fleet simulation paused.", "sys");
-    }
-}
-
-async function loadInitialFleet() {
-    // Generate initial fleet distributed across SF downtown / SoMa / Mission
-    for (let i = 0; i < 12; i++) {
-        const id = `fleet-driver-${100 + i}`;
-        const lat = SF_CENTER[0] + (Math.random() - 0.5) * 0.038;
-        const lng = SF_CENTER[1] + (Math.random() - 0.5) * 0.045;
-        const heading = Math.floor(Math.random() * 360);
-
-        simulatedFleet.push({ id, lat, lng, heading });
-        updateCarMarker(id, lat, lng, heading, "IDLE");
-        sendTelemetryPing(id, lat, lng, "IDLE");
     }
 }
 
@@ -683,6 +695,14 @@ async function loadActiveHexGrid() {
 // -------------------------------------------------------------
 // Inspectors & UI Helpers
 // -------------------------------------------------------------
+function switchPanelView(viewId) {
+    ["view-booking", "view-trip", "view-receipt"].forEach(id => {
+        const el = document.getElementById(id);
+        if (id === viewId) el.classList.remove("hidden");
+        else el.classList.add("hidden");
+    });
+}
+
 async function inspectPoint(lat, lng) {
     try {
         const res = await (await fetch(`/api/v1/spatial/resolve?lat=${lat}&lng=${lng}&resolution=8`)).json();
@@ -706,22 +726,15 @@ async function inspectCell(cellId, cachedInfo = null) {
     }
 }
 
-function inspectDriver(driverId) {
+function inspectDriver(driverId, name, vehicle) {
     document.getElementById("dev-drawer").classList.remove("hidden");
     const container = document.getElementById("inspector-cell-info");
     container.innerHTML = `
-        <div><strong>Driver ID:</strong> <code>${driverId}</code></div>
+        <div><strong>Driver:</strong> ${name}</div>
+        <div><strong>Vehicle:</strong> ${vehicle}</div>
+        <div><strong>Driver ID:</strong> <code>${driverId.slice(0, 12)}...</code></div>
         <div><strong>Status:</strong> LIVE / TELEMETRY ACTIVE</div>
-        <div><strong>State Store:</strong> Redis In-Memory Spatial Mesh</div>
     `;
-}
-
-function showStatusPhase(phaseId) {
-    ["phase-dispatching", "phase-active-trip", "phase-completed"].forEach(id => {
-        const el = document.getElementById(id);
-        if (id === phaseId) el.classList.remove("hidden");
-        else el.classList.add("hidden");
-    });
 }
 
 function logTerminal(msg, category = "sys") {
@@ -778,6 +791,15 @@ function initEventListeners() {
         });
     });
 
+    // Speed Multiplier Buttons (1x, 2x, 4x)
+    document.querySelectorAll(".speed-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll(".speed-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            simulationSpeedMultiplier = parseFloat(btn.dataset.speed);
+        });
+    });
+
     // Request Uber Button
     document.getElementById("btn-request-uber").addEventListener("click", triggerUberRide);
 
@@ -787,22 +809,35 @@ function initEventListeners() {
             cancelAnimationFrame(activeTripAnimId);
             activeTripAnimId = null;
         }
-        document.getElementById("status-sheet").classList.add("hidden");
-        document.getElementById("booking-card").classList.remove("collapsed");
+        switchPanelView("view-booking");
         document.getElementById("btn-request-uber").disabled = false;
         clearRouteGraphics();
+        currentTripData = null;
         logTerminal("Ride cancelled by user.", "sys");
+    });
+
+    // Instant Arrive / Skip
+    document.getElementById("btn-skip-trip").addEventListener("click", () => {
+        if (activeTripAnimId) {
+            cancelAnimationFrame(activeTripAnimId);
+            activeTripAnimId = null;
+        }
+        if (currentTripData) {
+            updateCarMarker(currentTripData.matched_driver.driver_id, currentDropoff[0], currentDropoff[1], 0, "IDLE");
+        }
+        switchPanelView("view-receipt");
+        logTerminal("Simulation fast-forwarded to destination arrival.", "trip");
     });
 
     // Book Another / Done
     document.getElementById("btn-book-another").addEventListener("click", () => {
-        document.getElementById("status-sheet").classList.add("hidden");
-        document.getElementById("booking-card").classList.remove("collapsed");
+        switchPanelView("view-booking");
         document.getElementById("btn-request-uber").disabled = false;
         clearRouteGraphics();
+        currentTripData = null;
     });
 
-    // Toggle Simulation
+    // Toggle Fleet Cruising
     document.getElementById("btn-toggle-sim").addEventListener("click", toggleFleetSimulation);
 
     // Toggle H3 Hexagons

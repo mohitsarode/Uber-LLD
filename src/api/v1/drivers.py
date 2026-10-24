@@ -45,16 +45,21 @@ async def list_drivers(
 
     output = []
     for user, profile in records:
+        if profile.current_h3_cell:
+            d_lat, d_lng = H3SpatialIndexer.cell_to_latlng(profile.current_h3_cell)
+        else:
+            d_lat, d_lng = settings.SIMULATION_CENTER_LAT, settings.SIMULATION_CENTER_LNG
+
         output.append({
             "driver_id": user.id,
             "name": user.name,
             "rating": user.rating,
             "vehicle_model": profile.vehicle_model,
             "license_plate": profile.license_plate,
-            "status": profile.current_status.value if profile.current_status else "OFFLINE",
+            "status": profile.current_status.value if profile.current_status else "IDLE",
             "cell": profile.current_h3_cell or "",
-            "lat": 0.0,
-            "lng": 0.0,
+            "lat": round(d_lat, 6),
+            "lng": round(d_lng, 6),
         })
     return output
 

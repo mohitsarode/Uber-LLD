@@ -46,11 +46,11 @@ body.uber-theme {
     overflow: hidden;
 }
 
-/* Fullscreen Map */
+/* Fullscreen Map Canvas */
 .fullscreen-map {
     width: 100%;
     height: 100%;
-    background: #09090b;
+    background: #111418;
     z-index: 1;
 }
 
@@ -63,7 +63,7 @@ body.uber-theme {
     left: 20px;
     right: 20px;
     height: 56px;
-    background: rgba(18, 18, 18, 0.88);
+    background: rgba(18, 18, 18, 0.90);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--uber-border);
@@ -217,14 +217,14 @@ body.uber-theme {
 }
 
 /* =====================================================
-   Uber Left Booking Card
+   Uber Main Left Panel (Docked on Left, Map is Open)
    ===================================================== */
-.uber-booking-card {
+.uber-main-panel {
     position: absolute;
     top: 88px;
     left: 20px;
-    width: 390px;
-    background: rgba(20, 20, 20, 0.94);
+    width: 395px;
+    background: rgba(18, 18, 18, 0.94);
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
     border: 1px solid var(--uber-border);
@@ -232,13 +232,11 @@ body.uber-theme {
     padding: 22px;
     z-index: 1000;
     box-shadow: var(--shadow-card);
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.uber-booking-card.collapsed {
-    transform: translateX(-430px);
-    opacity: 0;
-    pointer-events: none;
+.panel-view.hidden {
+    display: none !important;
 }
 
 .card-header h2 {
@@ -269,9 +267,9 @@ body.uber-theme {
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: var(--uber-gray-400);
-    padding: 5px 10px;
+    padding: 6px 11px;
     border-radius: 14px;
-    font-size: 0.72rem;
+    font-size: 0.73rem;
     font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
@@ -517,91 +515,8 @@ input[type="range"] {
 }
 
 /* =====================================================
-   Uber Floating Bottom Status Sheet
-   ==================================================== */
-.uber-status-sheet {
-    position: absolute;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 520px;
-    max-width: 90vw;
-    background: rgba(20, 20, 20, 0.95);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
-    border: 1px solid var(--uber-border);
-    border-radius: 24px;
-    padding: 20px 24px;
-    z-index: 1000;
-    box-shadow: var(--shadow-card);
-    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.uber-status-sheet.hidden {
-    transform: translate(-50%, 150px);
-    opacity: 0;
-    pointer-events: none;
-}
-
-.status-phase.hidden {
-    display: none;
-}
-
-/* Phase 1: Dispatching Radar */
-.status-spinner-row {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 14px;
-}
-
-.uber-radar-spinner {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    border: 3px solid rgba(255, 255, 255, 0.15);
-    border-top-color: var(--uber-cyan);
-    animation: uber-spin 1s linear infinite;
-    flex-shrink: 0;
-}
-
-@keyframes uber-spin {
-    to { transform: rotate(360deg); }
-}
-
-.phase-text h3 {
-    font-size: 1.05rem;
-    font-weight: 700;
-}
-
-.phase-text p {
-    font-size: 0.78rem;
-    color: var(--uber-gray-400);
-    margin-top: 2px;
-}
-
-.status-progress-track {
-    width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.status-progress-fill.animated {
-    width: 40%;
-    height: 100%;
-    background: linear-gradient(90deg, var(--uber-blue), var(--uber-cyan));
-    border-radius: 4px;
-    animation: uber-radar-line 1.8s infinite ease-in-out;
-}
-
-@keyframes uber-radar-line {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(300%); }
-}
-
-/* Phase 2: Active Trip */
+   VIEW 2: Active Trip & Drive Simulation (Inside Left Panel)
+   ===================================================== */
 .trip-header {
     display: flex;
     justify-content: space-between;
@@ -736,7 +651,7 @@ input[type="range"] {
     height: 100%;
     background: linear-gradient(90deg, var(--uber-blue), var(--uber-cyan));
     border-radius: 6px;
-    transition: width 0.3s ease;
+    transition: width 0.2s ease;
 }
 
 .progress-bar-car {
@@ -754,7 +669,54 @@ input[type="range"] {
     font-size: 0.65rem;
     box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
     transform: translateX(-50%);
-    transition: left 0.3s ease;
+    transition: left 0.2s ease;
+}
+
+/* Speed Controls */
+.speed-control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--uber-border-light);
+    border-radius: 12px;
+    padding: 8px 12px;
+}
+
+.speed-label {
+    font-size: 0.74rem;
+    color: var(--uber-gray-400);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.speed-btn-group {
+    display: flex;
+    gap: 4px;
+}
+
+.speed-btn {
+    background: var(--uber-surface-elevated);
+    border: 1px solid var(--uber-border);
+    color: var(--uber-gray-200);
+    padding: 3px 8px;
+    border-radius: 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.speed-btn:hover {
+    color: var(--uber-white);
+}
+
+.speed-btn.active {
+    background: var(--uber-blue);
+    border-color: var(--uber-blue);
+    color: var(--uber-white);
 }
 
 .trip-actions {
@@ -764,7 +726,7 @@ input[type="range"] {
 
 .uber-secondary-btn {
     flex: 1;
-    height: 40px;
+    height: 42px;
     background: var(--uber-surface-elevated);
     border: 1px solid var(--uber-border);
     color: var(--uber-gray-200);
@@ -786,7 +748,7 @@ input[type="range"] {
 
 .uber-primary-btn {
     flex: 1;
-    height: 40px;
+    height: 42px;
     background: var(--uber-blue);
     border: none;
     color: var(--uber-white);
@@ -805,7 +767,9 @@ input[type="range"] {
     background: #1d4ed8;
 }
 
-/* Phase 4: Completed Receipt */
+/* =====================================================
+   VIEW 3: Completed Receipt (Inside Left Panel)
+   ===================================================== */
 .completed-hero {
     display: flex;
     align-items: center;
@@ -838,13 +802,13 @@ input[type="range"] {
 
 .trip-receipt-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
     background: var(--uber-surface-elevated);
     border: 1px solid var(--uber-border-light);
     border-radius: 14px;
-    padding: 12px;
-    margin-bottom: 18px;
+    padding: 14px;
+    margin-bottom: 20px;
 }
 
 .receipt-item {
@@ -859,7 +823,7 @@ input[type="range"] {
 }
 
 .rc-val {
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     font-weight: 700;
     font-family: var(--font-uber);
     margin-top: 2px;
@@ -978,15 +942,14 @@ input[type="range"] {
     position: relative;
     width: 36px;
     height: 48px;
-    transition: transform 0.08s linear;
+    transition: transform 0.06s linear;
     cursor: pointer;
 }
 
 .uber-car-marker-svg {
     width: 100%;
     height: 100%;
-    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.8));
-    transition: transform 0.15s ease-out;
+    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.85));
 }
 
 /* Headlight cone illumination */
@@ -998,7 +961,7 @@ input[type="range"] {
     transform: translateX(-50%);
     width: 36px;
     height: 28px;
-    background: radial-gradient(ellipse at bottom, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 70%);
+    background: radial-gradient(ellipse at bottom, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 70%);
     pointer-events: none;
     clip-path: polygon(35% 100%, 65% 100%, 100% 0%, 0% 0%);
     opacity: 0.65;
@@ -1006,11 +969,11 @@ input[type="range"] {
 
 /* Matched / In-Trip Car Glow */
 .uber-car-marker-container.matched::before {
-    background: radial-gradient(ellipse at bottom, rgba(0, 210, 255, 0.7) 0%, rgba(0, 210, 255, 0) 70%);
+    background: radial-gradient(ellipse at bottom, rgba(0, 210, 255, 0.75) 0%, rgba(0, 210, 255, 0) 70%);
 }
 
 .uber-car-marker-container.on-trip::before {
-    background: radial-gradient(ellipse at bottom, rgba(6, 193, 103, 0.7) 0%, rgba(6, 193, 103, 0) 70%);
+    background: radial-gradient(ellipse at bottom, rgba(6, 193, 103, 0.75) 0%, rgba(6, 193, 103, 0) 70%);
 }
 
 /* Uber Pickup Pin Marker */
@@ -1020,7 +983,7 @@ input[type="range"] {
     background: var(--uber-white);
     border: 3px solid var(--uber-black);
     border-radius: 50%;
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.35), 0 6px 14px rgba(0, 0, 0, 0.7);
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.4), 0 6px 14px rgba(0, 0, 0, 0.8);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1041,7 +1004,7 @@ input[type="range"] {
     background: var(--uber-black);
     border: 3px solid var(--uber-white);
     border-radius: 4px;
-    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.5), 0 6px 14px rgba(0, 0, 0, 0.8);
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.6), 0 6px 14px rgba(0, 0, 0, 0.8);
     display: flex;
     align-items: center;
     justify-content: center;

@@ -24,6 +24,9 @@ class CandidateScore:
     def to_dict(self) -> dict[str, Any]:
         return {
             "driver_id": self.driver_id,
+            "name": self.extra_meta.get("name", "Driver"),
+            "vehicle_model": self.extra_meta.get("vehicle_model", "Tesla Model 3"),
+            "license_plate": self.extra_meta.get("license_plate", "7HEX001"),
             "cell": self.cell,
             "lat": round(self.lat, 6),
             "lng": round(self.lng, 6),
@@ -35,6 +38,7 @@ class CandidateScore:
             "rating_score": round(self.rating_score, 4),
             "bearing_score": round(self.bearing_score, 4),
             "final_score": round(self.final_score, 4),
+            "extra_meta": self.extra_meta,
         }
 
 

@@ -123,6 +123,7 @@ class RedisSpatialMesh:
         driver_name: str | None = None,
         rating: float = 4.9,
         vehicle_model: str = "Sedan",
+        license_plate: str | None = None,
     ) -> str:
         """Process incoming GPS telemetry point, compute H3 index, and atomically update mesh."""
         await self._ensure_connected()
@@ -151,6 +152,8 @@ class RedisSpatialMesh:
         }
         if driver_name:
             driver_data["name"] = driver_name
+        if license_plate:
+            driver_data["license_plate"] = license_plate
 
         pipeline.hset(meta_key, mapping=driver_data)
 
@@ -229,12 +232,14 @@ class RedisSpatialMesh:
                     "rating": float(raw.get("rating", 4.9)),
                     "name": raw.get("name", "Driver"),
                     "vehicle_model": raw.get("vehicle_model", "Sedan"),
+                    "license_plate": raw.get("license_plate", "7HEX001"),
                 })
 
         return results
 
     async def get_all_active_drivers(self) -> list[dict[str, Any]]:
         """Fetch all online drivers across all active cells."""
+        await self._ensure_connected()
         active_cells = await self.redis.smembers("active_cells")
         if not active_cells:
             return []

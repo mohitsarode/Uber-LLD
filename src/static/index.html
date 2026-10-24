@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Uber HexDispatch | Spatial Indexing & Real-Time Engine</title>
     
-    <!-- Modern Typography: Uber Move / Inter / JetBrains Mono -->
+    <!-- Modern Typography: Inter & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
     <!-- Leaflet Map CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     
-    <!-- Custom Uber-Style CSS -->
+    <!-- Uber Theme CSS -->
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body class="uber-theme">
@@ -65,150 +65,136 @@
             </div>
         </header>
 
-        <!-- Main Map Canvas -->
+        <!-- Fullscreen Map Canvas -->
         <div id="map" class="fullscreen-map"></div>
 
-        <!-- Floating Left Card: Uber Ride Booking & Dispatch Controller -->
-        <aside class="uber-booking-card" id="booking-card">
-            <div class="card-header">
-                <h2>Get a ride</h2>
-                <span class="card-subtitle">Discretized via Uber H3 (Res 8)</span>
-            </div>
+        <!-- Left Docked Panel (Unobstructed View of Map Center) -->
+        <aside class="uber-main-panel" id="uber-main-panel">
+            
+            <!-- VIEW 1: Booking & Dispatch Request -->
+            <div class="panel-view" id="view-booking">
+                <div class="card-header">
+                    <h2>Get a ride</h2>
+                    <span class="card-subtitle">Discretized via Uber H3 (Res 8)</span>
+                </div>
 
-            <!-- Ride Presets Shortcuts -->
-            <div class="preset-pills">
-                <button class="preset-pill active" data-preset="downtown-ferry">
-                    <i class="fa-solid fa-building"></i> Financial $\to$ Ferry
+                <!-- Preset Routes -->
+                <div class="preset-pills">
+                    <button class="preset-pill active" data-preset="financial-ferry">
+                        <i class="fa-solid fa-building"></i> Financial $\to$ Ferry
+                    </button>
+                    <button class="preset-pill" data-preset="soma-chase">
+                        <i class="fa-solid fa-basketball"></i> SoMa $\to$ Chase
+                    </button>
+                    <button class="preset-pill" data-preset="mission-marina">
+                        <i class="fa-solid fa-bridge"></i> Mission $\to$ Marina
+                    </button>
+                </div>
+
+                <!-- Pickup & Dropoff Inputs with Route Line -->
+                <div class="location-inputs">
+                    <div class="route-icon-connector">
+                        <span class="pickup-dot"></span>
+                        <span class="connecting-line"></span>
+                        <span class="dropoff-square"></span>
+                    </div>
+                    <div class="input-fields">
+                        <div class="input-row">
+                            <input type="text" id="input-pickup" value="Financial District (Montgomery St)" readonly>
+                            <button class="input-action-btn" id="btn-set-pickup-map" title="Click map to set pickup">
+                                <i class="fa-solid fa-location-crosshairs"></i>
+                            </button>
+                        </div>
+                        <div class="input-divider"></div>
+                        <div class="input-row">
+                            <input type="text" id="input-dropoff" value="Ferry Building (The Embarcadero)" readonly>
+                            <button class="input-action-btn" id="btn-set-dropoff-map" title="Click map to set destination">
+                                <i class="fa-solid fa-map-pin"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ride Tiers -->
+                <div class="ride-tiers">
+                    <div class="ride-tier-card selected" data-tier="UberX" data-multiplier="1.0">
+                        <div class="tier-icon">
+                            <i class="fa-solid fa-car-side"></i>
+                        </div>
+                        <div class="tier-details">
+                            <div class="tier-name-row">
+                                <span class="tier-name">UberX</span>
+                                <span class="tier-fare" id="fare-uberx">$12.50</span>
+                            </div>
+                            <div class="tier-info">
+                                <span class="tier-eta"><i class="fa-regular fa-clock"></i> 2 min</span>
+                                <span class="tier-capacity">• 4 seats</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ride-tier-card" data-tier="Uber Comfort" data-multiplier="1.35">
+                        <div class="tier-icon comfort">
+                            <i class="fa-solid fa-car"></i>
+                        </div>
+                        <div class="tier-details">
+                            <div class="tier-name-row">
+                                <span class="tier-name">Comfort</span>
+                                <span class="tier-fare" id="fare-comfort">$16.80</span>
+                            </div>
+                            <div class="tier-info">
+                                <span class="tier-eta"><i class="fa-regular fa-clock"></i> 3 min</span>
+                                <span class="tier-capacity">• Newer cars, extra legroom</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ride-tier-card" data-tier="Uber Black" data-multiplier="1.95">
+                        <div class="tier-icon black">
+                            <i class="fa-solid fa-shield-halved"></i>
+                        </div>
+                        <div class="tier-details">
+                            <div class="tier-name-row">
+                                <span class="tier-name">Uber Black</span>
+                                <span class="tier-fare" id="fare-black">$24.40</span>
+                            </div>
+                            <div class="tier-info">
+                                <span class="tier-eta"><i class="fa-regular fa-clock"></i> 4 min</span>
+                                <span class="tier-capacity">• Premium luxury & top drivers</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- H3 Search Radius -->
+                <div class="search-options">
+                    <div class="slider-label-row">
+                        <span>H3 Search Depth:</span>
+                        <strong id="val-kring">3 rings (37 cells)</strong>
+                    </div>
+                    <input type="range" id="slider-kring" min="1" max="5" value="3" step="1">
+                </div>
+
+                <!-- Primary CTA -->
+                <button id="btn-request-uber" class="uber-cta-btn">
+                    <span>Request <span id="cta-tier-label">UberX</span></span>
+                    <i class="fa-solid fa-arrow-right"></i>
                 </button>
-                <button class="preset-pill" data-preset="soma-chase">
-                    <i class="fa-solid fa-basketball"></i> SoMa $\to$ Chase
-                </button>
-                <button class="preset-pill" data-preset="mission-marina">
-                    <i class="fa-solid fa-bridge"></i> Mission $\to$ Marina
-                </button>
             </div>
 
-            <!-- Location Inputs with Uber-style Connecting Line -->
-            <div class="location-inputs">
-                <div class="route-icon-connector">
-                    <span class="pickup-dot"></span>
-                    <span class="connecting-line"></span>
-                    <span class="dropoff-square"></span>
-                </div>
-                <div class="input-fields">
-                    <div class="input-row">
-                        <input type="text" id="input-pickup" placeholder="Current Location" value="Financial District, Market St" readonly>
-                        <button class="input-action-btn" id="btn-set-pickup-map" title="Click on map to set pickup">
-                            <i class="fa-solid fa-location-crosshairs"></i>
-                        </button>
-                    </div>
-                    <div class="input-divider"></div>
-                    <div class="input-row">
-                        <input type="text" id="input-dropoff" placeholder="Where to?" value="Ferry Building, The Embarcadero" readonly>
-                        <button class="input-action-btn" id="btn-set-dropoff-map" title="Click on map to set destination">
-                            <i class="fa-solid fa-map-pin"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Ride Tier Selection Options (UberX, Comfort, Black) -->
-            <div class="ride-tiers">
-                <div class="ride-tier-card selected" data-tier="UberX" data-multiplier="1.0">
-                    <div class="tier-icon">
-                        <i class="fa-solid fa-car-side"></i>
-                    </div>
-                    <div class="tier-details">
-                        <div class="tier-name-row">
-                            <span class="tier-name">UberX</span>
-                            <span class="tier-fare" id="fare-uberx">$12.50</span>
-                        </div>
-                        <div class="tier-info">
-                            <span class="tier-eta"><i class="fa-regular fa-clock"></i> 2 min</span>
-                            <span class="tier-capacity">• 4 seats</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="ride-tier-card" data-tier="Uber Comfort" data-multiplier="1.35">
-                    <div class="tier-icon comfort">
-                        <i class="fa-solid fa-car"></i>
-                    </div>
-                    <div class="tier-details">
-                        <div class="tier-name-row">
-                            <span class="tier-name">Comfort</span>
-                            <span class="tier-fare" id="fare-comfort">$16.80</span>
-                        </div>
-                        <div class="tier-info">
-                            <span class="tier-eta"><i class="fa-regular fa-clock"></i> 3 min</span>
-                            <span class="tier-capacity">• Newer cars, extra legroom</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="ride-tier-card" data-tier="Uber Black" data-multiplier="1.95">
-                    <div class="tier-icon black">
-                        <i class="fa-solid fa-shield-halved"></i>
-                    </div>
-                    <div class="tier-details">
-                        <div class="tier-name-row">
-                            <span class="tier-name">Uber Black</span>
-                            <span class="tier-fare" id="fare-black">$24.40</span>
-                        </div>
-                        <div class="tier-info">
-                            <span class="tier-eta"><i class="fa-regular fa-clock"></i> 4 min</span>
-                            <span class="tier-capacity">• Premium luxury & top drivers</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Search Radius Slider -->
-            <div class="search-options">
-                <div class="slider-label-row">
-                    <span>H3 Search Depth:</span>
-                    <strong id="val-kring">3 rings (37 cells)</strong>
-                </div>
-                <input type="range" id="slider-kring" min="1" max="5" value="3" step="1">
-            </div>
-
-            <!-- Primary Dispatch Request Button -->
-            <button id="btn-request-uber" class="uber-cta-btn">
-                <span>Request <span id="cta-tier-label">UberX</span></span>
-                <i class="fa-solid fa-arrow-right"></i>
-            </button>
-        </aside>
-
-        <!-- Floating Live Ride Status Card (Uber Bottom Sheet) -->
-        <div class="uber-status-sheet hidden" id="status-sheet">
-            <!-- Phase 1: Hexagonal Dispatching -->
-            <div class="status-phase" id="phase-dispatching">
-                <div class="status-spinner-row">
-                    <div class="uber-radar-spinner"></div>
-                    <div class="phase-text">
-                        <h3>Connecting to nearest driver...</h3>
-                        <p id="dispatching-subtext">Searching H3 hexagonal k-rings across Redis mesh...</p>
-                    </div>
-                </div>
-                <div class="status-progress-track">
-                    <div class="status-progress-fill animated"></div>
-                </div>
-            </div>
-
-            <!-- Phase 2 & 3: Matched, En Route & Driving to Destination -->
-            <div class="status-phase hidden" id="phase-active-trip">
-                <!-- Trip Header Banner -->
+            <!-- VIEW 2: Active Trip & Drive Simulation (Clean Side Panel) -->
+            <div class="panel-view hidden" id="view-trip">
                 <div class="trip-header">
                     <div class="trip-stage-pill" id="trip-stage-pill">
                         <span class="pulse-dot"></span>
                         <span id="trip-stage-title">Driver arriving in 2 mins</span>
                     </div>
                     <div class="trip-eta-badge" id="trip-eta-badge">
-                        <span id="trip-distance-rem">1.2 km away</span>
+                        <span id="trip-distance-rem">650 m away</span>
                     </div>
                 </div>
 
-                <!-- Driver & Vehicle Profile Card -->
+                <!-- Driver Profile Card -->
                 <div class="driver-profile-card">
                     <div class="driver-avatar-wrap">
                         <div class="driver-avatar">
@@ -217,12 +203,12 @@
                         <span class="driver-rating"><i class="fa-solid fa-star"></i> <span id="driver-rating-val">4.95</span></span>
                     </div>
                     <div class="driver-meta">
-                        <div class="driver-name" id="driver-name-val">Marcus Vance</div>
-                        <div class="vehicle-desc" id="driver-vehicle-val">Tesla Model 3 • White</div>
-                        <div class="h3-cell-tag">Hex: <code id="driver-hex-val">8828308281fffff</code></div>
+                        <div class="driver-name" id="driver-name-val">Dmitri Volkov</div>
+                        <div class="vehicle-desc" id="driver-vehicle-val">BMW i4 • Electric Blue</div>
+                        <div class="h3-cell-tag">Hex: <code id="driver-hex-val">88283082a3fffff</code></div>
                     </div>
                     <div class="license-plate-badge" id="driver-plate-val">
-                        7HEX001
+                        7HEX005
                     </div>
                 </div>
 
@@ -230,7 +216,7 @@
                 <div class="trip-progress-container">
                     <div class="progress-labels">
                         <span id="prog-pickup-label"><i class="fa-solid fa-circle-dot"></i> Pickup</span>
-                        <span id="prog-trip-status">Driver en route</span>
+                        <span id="prog-trip-status">Driver En Route</span>
                         <span id="prog-dest-label"><i class="fa-solid fa-location-dot"></i> Destination</span>
                     </div>
                     <div class="progress-bar-bg">
@@ -241,26 +227,35 @@
                     </div>
                 </div>
 
-                <!-- Quick Actions -->
+                <!-- Speed Control & Actions -->
+                <div class="speed-control-row">
+                    <span class="speed-label"><i class="fa-solid fa-gauge-high"></i> Simulation Speed:</span>
+                    <div class="speed-btn-group">
+                        <button class="speed-btn" data-speed="1.0">1x</button>
+                        <button class="speed-btn active" data-speed="2.0">2x</button>
+                        <button class="speed-btn" data-speed="4.0">4x</button>
+                    </div>
+                </div>
+
                 <div class="trip-actions">
                     <button class="uber-secondary-btn" id="btn-cancel-trip">
                         <i class="fa-solid fa-xmark"></i> Cancel Ride
                     </button>
-                    <button class="uber-primary-btn" id="btn-speed-up-sim">
-                        <i class="fa-solid fa-forward"></i> Fast Forward
+                    <button class="uber-primary-btn" id="btn-skip-trip">
+                        <i class="fa-solid fa-forward-fast"></i> Instant Arrive
                     </button>
                 </div>
             </div>
 
-            <!-- Phase 4: Trip Completed Receipt -->
-            <div class="status-phase hidden" id="phase-completed">
+            <!-- VIEW 3: Trip Completed Receipt -->
+            <div class="panel-view hidden" id="view-receipt">
                 <div class="completed-hero">
                     <div class="success-icon">
                         <i class="fa-solid fa-check"></i>
                     </div>
                     <div class="completed-text">
                         <h3>You've arrived!</h3>
-                        <p>Thank you for riding with Uber HexDispatch.</p>
+                        <p>Trip completed and logged to TimescaleDB.</p>
                     </div>
                 </div>
 
@@ -275,22 +270,23 @@
                     </div>
                     <div class="receipt-item">
                         <span class="rc-label">Duration</span>
-                        <span class="rc-val" id="receipt-duration">4m 12s</span>
+                        <span class="rc-val" id="receipt-duration">3m 45s</span>
                     </div>
                     <div class="receipt-item">
                         <span class="rc-label">Match Latency</span>
-                        <span class="rc-val text-cyan" id="receipt-latency">3.4 ms</span>
+                        <span class="rc-val text-cyan" id="receipt-latency">4.2 ms</span>
                     </div>
                 </div>
 
                 <button class="uber-cta-btn" id="btn-book-another">
                     <span>Done • Book Another Ride</span>
+                    <i class="fa-solid fa-arrow-right"></i>
                 </button>
             </div>
-        </div>
+        </aside>
 
-        <!-- Floating Collapsible Developer & Telemetry Drawer -->
-        <aside class="uber-dev-drawer" id="dev-drawer">
+        <!-- Collapsible Developer & Telemetry Drawer (Hidden by default) -->
+        <aside class="uber-dev-drawer hidden" id="dev-drawer">
             <div class="drawer-header">
                 <h3><i class="fa-solid fa-terminal"></i> Distributed Mesh Stream</h3>
                 <button class="drawer-close-btn" id="btn-close-drawer">
@@ -299,7 +295,6 @@
             </div>
             
             <div class="drawer-body">
-                <!-- Spatial Cell Inspector -->
                 <div class="drawer-section">
                     <div class="section-title">H3 Spatial Inspection</div>
                     <div id="inspector-cell-info" class="code-box">
@@ -307,7 +302,6 @@
                     </div>
                 </div>
 
-                <!-- Real-time Event Terminal -->
                 <div class="drawer-section flex-1">
                     <div class="section-title">Redis Pub/Sub Event Mesh</div>
                     <div class="terminal-log" id="terminal-event-log">
@@ -320,7 +314,7 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <!-- Modern Uber Dashboard Application Logic -->
+    <!-- Application Logic -->
     <script src="/static/js/dashboard.js"></script>
 </body>
 </html>
