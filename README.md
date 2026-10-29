@@ -1,13 +1,14 @@
-# H3-Driven Spatial Indexing & Dispatch Engine
+# Uber LLD: H3-Driven Spatial Indexing & Dispatch Engine
 
-An enterprise-grade, asynchronous backend engine that discretizes physical continuous space using **Uber’s H3 Hexagonal Hierarchical Indexing**. The system ingests high-frequency GPS telemetry via persistent WebSockets, maps real-time coordinates to discrete spatial buckets, and coordinates distributed dispatch state across an in-memory Redis mesh layer and TimescaleDB time-series hypertables.
+An enterprise-grade, asynchronous Low-Level System Design (LLD) and backend engine that discretizes physical continuous space using **Uber’s H3 Hexagonal Hierarchical Indexing**. The system ingests high-frequency GPS telemetry via persistent WebSockets, maps real-time coordinates to discrete spatial buckets, coordinates distributed dispatch state across an in-memory Redis mesh layer, provides turn-by-turn road routing via OpenFreeMap / OSRM, and persists operational audit trails into TimescaleDB time-series hypertables.
 
 [![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Uber H3](https://img.shields.io/badge/Uber%20H3-Hexagonal%20Spatial%20Index-000000.svg?logo=uber&logoColor=white)](https://h3geo.org/)
+[![OpenFreeMap](https://img.shields.io/badge/OpenFreeMap-Vector%20Basemap-4A90E2.svg)](https://openfreemap.org/)
 [![Redis Mesh](https://img.shields.io/badge/Redis-In--Memory%20Spatial%20Mesh-DC382D.svg?logo=redis&logoColor=white)](https://redis.io/)
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-PostgreSQL%20Hypertable-FDB515.svg?logo=postgresql&logoColor=black)](https://www.timescale.com/)
-[![Tests](https://img.shields.io/badge/pytest-17%20passed-success.svg)](https://docs.pytest.org/)
+[![Tests](https://img.shields.io/badge/pytest-20%20passed-success.svg)](https://docs.pytest.org/)
 
 ---
 
@@ -58,10 +59,13 @@ An enterprise-grade, asynchronous backend engine that discretizes physical conti
 | **Web Framework** | FastAPI (ASGI) | Non-blocking handling of thousands of concurrent long-lived WebSocket connections & REST API. |
 | **Spatial Indexing** | `h3-py` (Uber H3) | Hexagonal spatial discretization, cell matching, and $O(1)$ equidistant k-ring expansion. |
 | **In-Memory Mesh** | Redis + Pub/Sub | Distributed state tracking, driver-to-cell spatial sets, and atomic Lua reservation leases. |
-| **Persistence** | PostgreSQL + TimescaleDB | Time-series hypertable for GPS trajectory telemetry; relational schema for trips and users. |
+| **Persistence** | PostgreSQL + TimescaleDB | Time-series hypertable for GPS trajectory telemetry; relational schema for trips and audits. |
 | **Telemetry Buffer** | Async Micro-Batcher | In-memory queue batch flusher mitigating database write-amplification under high ingestion load. |
+| **Road Routing** | OSRM / OpenStreetMap | Turn-by-turn road network geometry, actual road distances, and true driving duration. |
+| **Vector Basemap** | OpenFreeMap / MapLibre GL | Clean, open-source dark vector tiles with zero API keys or watermarks. |
+| **Decision Audit** | Mathematical Ranker | Data-driven explainability comparing candidate fleet distances, ETAs, and heading alignment. |
 | **Load Testing** | Locust / WebSocket Engine | Dynamic load simulation driving concurrent driver GPS trajectories and rider dispatch streams. |
-| **Visual Dashboard** | HTML5 / Leaflet / JS | Real-time operations monitor displaying live driver markers, H3 grid overlays, and k-ring ripples. |
+| **Visual Dashboard** | HTML5 / Leaflet / JS | Authentic Uber-grade operations monitor with real road driving simulation and audit modals. |
 
 ---
 
@@ -128,8 +132,8 @@ The engine automatically falls back to SQLite (`aiosqlite`) and an in-memory Fak
 
 1. **Clone & activate environment**:
    ```bash
-   git clone <repo-url>
-   cd h3-dispatch-engine
+   git clone https://github.com/mohitsarode/Uber-LLD.git
+   cd Uber-LLD
    uv venv .venv --python 3.12
    .venv\Scripts\activate   # On Linux/macOS: source .venv/bin/activate
    uv pip install -e ".[dev]"
@@ -170,9 +174,11 @@ docker compose up --build
 ```bash
 pytest -v
 ```
-All 17 automated tests verify:
+All 20 automated tests verify:
 - H3 coordinate discretization, centroid inversion, and polygon vertex ordering (RFC 7946).
 - Hollow ring incremental perimeter sizing ($k=0, 1, 2$).
+- Real road network routing via OSRM and street grid fallback interpolation.
+- Mathematical dispatch audit persistence and candidate matrix generation.
 - Redis mesh atomic Lua reservations and double-booking race condition prevention.
 - Asynchronous telemetry buffer queue draining and batch persistence.
 - REST dispatch endpoints and WebSocket communication protocols.
@@ -226,6 +232,7 @@ h3-dispatch-engine/
     ├── services/
     │   ├── redis_mesh.py      # In-memory spatial mesh, Lua scripts, and Pub/Sub router
     │   ├── telemetry_buffer.py# High-throughput asyncio.Queue micro-batcher
+    │   ├── routing_service.py # OSRM road network routing & street waypoint generation
     │   └── dispatch_service.py# End-to-end spatial dispatch workflow & failover cascading
     ├── api/
     │   ├── v1/
